@@ -1,3 +1,12 @@
 /.idea 
 /.ipynb_checkpoints 
 MasterThesis_Prototype_Python.iml
+
+/app/.ipynb_checkpoints
+/app/test.jpg
+/app/video.avi
+
+/training/.ipynb_checkpoints
+/training/model_checkpoints
+/training/*.txt
+
