@@ -4,6 +4,7 @@ MasterThesis_Prototype_Python.iml
 
 /app/.ipynb_checkpoints
 /app/test.jpg
+/app/model_top.h5
 /app/video.avi
 
 /training/.ipynb_checkpoints

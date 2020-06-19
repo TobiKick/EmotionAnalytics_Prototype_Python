@@ -5,11 +5,9 @@
 ############################# IMPORT STATEMENTS ########################################################
 #Import Python modules
 import numpy as np
-from matplotlib import pyplot as plt
 from mtcnn import MTCNN
 from numpy import asarray
 from PIL import Image
-from matplotlib.patches import Rectangle
 import cv2
 import os
 import json
@@ -20,19 +18,13 @@ import tensorflow as tf
 from keras_vggface.utils import preprocess_input
 from keras_vggface.vggface import VGGFace
 
-import os
-#For local CPU usage:
-#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-#os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
 #Import Keras modules
 from keras.layers import Dense, Flatten, Input, Dropout, Conv1D, Conv2D, LSTM, Concatenate, Reshape, MaxPool1D, MaxPool2D, BatchNormalization
 from keras import Model, Sequential
 from keras.optimizers import Adam
 from keras.utils import np_utils, Sequence
 import keras.backend as K
-from keras.backend import clear_session, set_session
-
+# from keras.backend import clear_session, set_session
 
 ############################# SETUP PROJECT PARAMETERS ########################################################
 
@@ -63,15 +55,15 @@ IMG_FORMAT = '.png'
 # Using the VGGFace pretrained Resnet50 model to recognize emotions (training + prediction)
 
 ## setting Keras sessions for each network - First Network
-sess = tf.Session()
-graph = tf.get_default_graph()
-set_session(sess)
+sess = tf.compat.v1.Session()
+graph = tf.compat.v1.get_default_graph()
+tf.compat.v1.keras.backend.set_session(sess)
 detector = MTCNN()
 
 ## Second Network
-sess2 = tf.Session()
-graph = tf.get_default_graph()
-set_session(sess2)
+sess2 = tf.compat.v1.Session()
+graph = tf.compat.v1.get_default_graph()
+tf.compat.v1.keras.backend.set_session(sess2)
 model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
 
    
@@ -108,7 +100,7 @@ class My_Custom_Generator(Sequence) :
         global sess
         global graph
         with graph.as_default():
-            set_session(sess)
+            tf.compat.v1.keras.backend.set_session(sess)
             face = detector.detect_faces(image)
         return face
 
@@ -120,7 +112,7 @@ class My_Custom_Generator(Sequence) :
         face = []
         for img in images:
             with graph.as_default():
-                set_session(sess)
+                tf.compat.v1.keras.backend.set_session(sess)
                 face = detector.detect_faces(img)
             if len(face) == 1:
                 faces.append(face)  ## just use the face with the highest detection probability
@@ -190,8 +182,10 @@ class My_Custom_Generator(Sequence) :
         # prepare the data for the model
         samples = preprocess_input(samples, version=2)
         
+        global sess2
+        global graph
         with graph.as_default():
-            set_session(sess2)
+            tf.compat.v1.keras.backend.set_session(sess2)
             output = model_VGGFace.predict(samples)
             return output
     
@@ -290,7 +284,7 @@ def run_model(path_to_data):
     # model.fit(X_train_embeddings, Y_train, validation_data=(X_val_embeddings, Y_val), batch_size=16, epochs=10)
     model.fit_generator(generator=my_training_batch_generator,
                    steps_per_epoch = int(X_train_filenames.shape[0] // batch_size),
-                   epochs = 10,
+                   epochs = 1,
                    verbose = 1,
                    validation_data = my_validation_batch_generator,
                    validation_steps = int(X_val_filenames.shape[0] // batch_size))
