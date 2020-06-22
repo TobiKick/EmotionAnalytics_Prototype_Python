@@ -28,7 +28,7 @@ import keras.backend as K
 
 ############################# SETUP PROJECT PARAMETERS ########################################################
 
-LOAD_PROGRESS_FROM_MODEL = True
+LOAD_PROGRESS_FROM_MODEL = False
 SAVE_PROGRESS_TO_MODEL = True
 
 IMAGE_HEIGHT = 224
@@ -226,15 +226,24 @@ def constructing_data_list(root_data_dir):
 def model_top(input_shape):
     model = Sequential()
         
-    model.add(Dense(512, activation='relu', input_dim = input_shape))
-    model.add(Dropout(0.1))
+    model.add(Dense(1048, activation='relu', input_dim = input_shape))
+    model.add(Dropout(0.5))
+    model.add(Dense(512, activation='relu'))
+    model.add(BatchNormalization())
     
     model.add(Dense(256, activation='relu'))
-    
+    model.add(Dropout(0.4))
     model.add(Dense(128, activation='relu'))
     model.add(BatchNormalization())
     
     model.add(Dense(64, activation='relu'))
+    model.add(Dropout(0.3))
+    model.add(Dense(32, activation='relu'))
+    model.add(BatchNormalization())
+    
+    model.add(Dense(16, activation='relu'))
+    model.add(Dropout(0.2))
+    model.add(Dense(8, activation='relu'))
     model.add(Dense(output_dim = 2, activation='tanh')) 
     
     return model
@@ -242,6 +251,29 @@ def model_top(input_shape):
 def root_mean_squared_error(y_true, y_pred):
         return K.sqrt(K.mean(K.square(y_pred - y_true))) 
 
+def corr(y_true, y_pred):
+    #normalise
+    n_y_true = (y_true - K.mean(y_true[:])) / K.std(y_true[:])
+    n_y_pred = (y_pred - K.mean(y_pred[:])) / K.std(y_pred[:])  
+
+    top=K.sum((n_y_true[:]-K.mean(n_y_true[:]))*(n_y_pred[:]-K.mean(n_y_pred[:])),axis=[-1,-2])
+    bottom=K.sqrt(K.sum(K.pow((n_y_true[:]-K.mean(n_y_true[:])),2),axis=[-1,-2])*K.sum(K.pow(n_y_pred[:]-K.mean(n_y_pred[:]),2),axis=[-1,-2]))
+
+    result=top/bottom
+    return K.mean(result)
+
+def corr_loss(y_true, y_pred):
+    x = y_true
+    y = y_pred
+    mx = K.mean(x)
+    my = K.mean(y)
+    xm, ym = x-mx, y-my
+    r_num = K.sum(tf.multiply(xm,ym))
+    r_den = K.sqrt(tf.multiply(K.sum(K.square(xm)), K.sum(K.square(ym))))
+    r = r_num / r_den
+
+    r = K.maximum(K.minimum(r, 1.0), -1.0)
+    return 1 - K.square(r)
 
 def run_model(path_to_data):
     #reading in data and appropriately structuring it with a list for the filenames and the labels
@@ -276,9 +308,9 @@ def run_model(path_to_data):
     if LOAD_PROGRESS_FROM_MODEL:
         model.load_weights("model_checkpoints/model_top.h5")
         print("Loaded model from disk")
-
+        
     model.summary()
-    model.compile(loss = root_mean_squared_error, optimizer = "adam", metrics = ["accuracy"])
+    model.compile(loss = corr_loss, optimizer = "adam", metrics = ["accuracy", root_mean_squared_error, corr])
     
 
     # model.fit(X_train_embeddings, Y_train, validation_data=(X_val_embeddings, Y_val), batch_size=16, epochs=10)
