@@ -10,4 +10,6 @@ MasterThesis_Prototype_Python.iml
 /training/.ipynb_checkpoints
 /training/model_checkpoints
 /training/*.txt
+/training/numpy
+/training/visualization
 
