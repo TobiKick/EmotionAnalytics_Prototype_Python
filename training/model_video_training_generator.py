@@ -246,7 +246,7 @@ def preloading_data(filenames):
         if img is not None:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             face = extract_face_from_image(img)
-            plt.imsave(file_name.replace('/', '_'), face)
+            plt.imsave('numpy/' + file_name.replace('/', '_'), face)
             print("saved")
     return 1
 

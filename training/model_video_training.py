@@ -34,22 +34,27 @@ import keras.backend as K
 LOAD_PROGRESS_FROM_MODEL = False
 SAVE_PROGRESS_TO_MODEL = True
 
+RUN_LOCAL = False
+CONSTRUCT_DATA = False
+CROSS_VALIDATION = False
+LAYERS_TRAINABLE = False
+
 IMAGE_HEIGHT = 224
 IMAGE_WIDTH = 224
 
-RUN_LOCAL = False
-CONSTRUCT_DATA = False
-
-CROSS_VALIDATION = False
 NUM_FOLDS = 5
-
 BATCH_SIZE = 32
-EPOCHS = 1000
 
 PATH_TO_DATA = 'AFEW-VA'
 DATA_DIR_PREDICT = ''
 IMG_FORMAT = '.png'
 
+if LAYERS_TRAINABLE == True:
+    EPOCHS = 1000
+    LEARNING_RATE = 0.001
+else:
+    EPOCHS = 5
+    LEARNING_RATE = 0.01
 
 if RUN_LOCAL == True:
     PATH_TO_DATA = r"C:\Users\Tobias\Desktop\Master-Thesis\Data\AFEW-VA"
@@ -184,13 +189,18 @@ def custom_vgg_model():
     vgg_model = VGGFace(include_top=False, input_shape=(224, 224, 3))
     
     for layer in vgg_model.layers: 
-        layer.trainable = False
+        layer.trainable = LAYERS_TRAINABLE
         print(layer.name)
     
     last_layer = vgg_model.get_layer('pool5').output    
     x = Flatten(name='flatten')(last_layer)
+    x = Dense(256, activation='relu')(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dropout(0.3)(x)
     x = Dense(64, activation='relu')(x)
     x = Dense(16, activation='relu')(x)
+    x = Dropout(0.2)(x)
+    x = BatchNormalization()(x)
     out = Dense(2, activation='tanh')(x)
     custom_vgg_model = Model(vgg_model.input, out)
     
@@ -261,6 +271,7 @@ def run_model(path_to_data):
         X_train_faces = np.load('numpy/X_train_faces.npy')
         X_val_faces = np.load('numpy/X_val_faces.npy')
     
+    np.savetxt("foo.csv", Y_val_labels, delimiter=",")
 
     # Define the K-fold Cross Validator
     kfold = KFold(n_splits=NUM_FOLDS, shuffle=True)
@@ -290,7 +301,8 @@ def run_model(path_to_data):
                 print("Loaded model from disk")
 
             model.summary()
-            model.compile(loss = rmse, optimizer = "adam", metrics = ["accuracy", rmse, corr])
+            opt = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+            model.compile(loss = rmse, optimizer = opt, metrics = ["accuracy", rmse, corr])
 
             scores = model.fit(X_train_embeddings, Y_train_labels, validation_data=(X_val_embeddings, Y_val_labels), batch_size=BATCH_SIZE, verbose=1, epochs=EPOCHS, callbacks = [mc_best, mc_es])
             
@@ -343,7 +355,8 @@ def run_model(path_to_data):
             print("Loaded model from disk")
 
         model.summary()
-        model.compile(loss = rmse, optimizer = "adam", metrics = ["accuracy", rmse, corr])
+        opt = keras.optimizers.Adam(learning_rate = LEARNING_RATE)
+        model.compile(loss = rmse, optimizer = opt, metrics = ["accuracy", rmse, corr])
             
         history = model.fit(X_train_faces, Y_train_labels, validation_data=(X_val_faces, Y_val_labels), batch_size=BATCH_SIZE, verbose=1, epochs=EPOCHS, callbacks = [mc_best, mc_es])
             
