@@ -284,61 +284,12 @@ def run_model(path_to_data):
     history_val_rmse = []
 
     if CROSS_VALIDATION == True:
-        inputs = np.load('numpy/filenames_shuffled.npy')
-        targets = np.load('numpy/labels_shuffled.npy')
-        for train, test in kfold.split(inputs, targets): 
-            embedding_output_shape = 2048
-            model = model_top(embedding_output_shape)
-
-            if LOAD_PROGRESS_FROM_MODEL:
-                model.load_weights("model_checkpoints/model_top.h5")
-                print("Loaded model from disk")
-
-            model.summary()
-            model.compile(loss = rmse, optimizer = "adam", metrics = ["accuracy", rmse, corr])
-
-            scores = model.fit(X_train_embeddings, Y_train_labels, validation_data=(X_val_embeddings, Y_val_labels), batch_size=BATCH_SIZE, verbose=1, epochs=EPOCHS, callbacks = [mc_best, mc_es])
-            
-            history_accuracy.extend(scores.history['accuracy'])
-            history_val_accuracy.extend(scores.history['val_accuracy'])
-            history_corr.extend(scores.history['corr'])
-            history_val_corr.extend(scores.history['val_corr'])
-            history_rmse.extend(scores.history['rmse'])
-            history_val_rmse.extend(scores.history['val_rmse'])
-        
-        if SAVE_PROGRESS_TO_MODEL:
-            model.save_weights("model_checkpoints/model_top.h5")
-            print("Saved model to disk")
-              
-        # summarize history for accuracy
-        plt.plot(history_accuracy)
-        plt.plot(history_val_accuracy)
-        plt.title('model accuracy')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/accuracy.png')
-        plt.show()
-
-        # summarize history for CORR
-        plt.plot(history_corr)
-        plt.plot(history_val_corr)
-        plt.title('model correlation(CORR)')
-        plt.ylabel('correlation')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/correlation.png')
-        plt.show()
-
-        # summarize history for RMSE
-        plt.plot(history_rmse)
-        plt.plot(history_val_rmse)
-        plt.title('model root_mean_squared_error')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/rmse.png')
-        plt.show()              
+        #inputs = np.load('numpy/filenames_shuffled.npy')
+        #targets = np.load('numpy/labels_shuffled.npy')
+        #for train, test in kfold.split(inputs, targets): 
+        #    embedding_output_shape = 2048
+        #    model = model_top(embedding_output_shape)
+          
     
     else:
         model = model_top(2048)
