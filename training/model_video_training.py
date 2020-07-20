@@ -332,7 +332,7 @@ def run_model():
     mc_es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=30) # waiting for 10 consecutive epochs that don't reduce the val_loss
     
     mc_crossVal = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=10)
-    #cb_learningRate =  LearningRateScheduler(scheduler)
+    ## cb_learningRate =  LearningRateScheduler(scheduler)
     cb_learningRate = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=3, min_lr=0.0001)
     cb_layerTrainable = LambdaCallback(
         on_epoch_begin=lambda epoch, logs: setTrainable(epoch))
