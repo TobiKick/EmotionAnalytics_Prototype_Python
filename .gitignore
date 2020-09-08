@@ -13,4 +13,7 @@ MasterThesis_Prototype_Python.iml
 /training/*.txt
 /training/numpy
 /training/visualization
-
+/training/Untitled.ipynb_checkpoints
+/training/datagen_preview
+/training/best_model.h5
+/training/shape_predictor_68_face_landmarks.dat
