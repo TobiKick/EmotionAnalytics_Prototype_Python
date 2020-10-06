@@ -16,6 +16,7 @@ import imutils
 import dlib 
 
 from sklearn.utils import shuffle
+from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
@@ -33,23 +34,29 @@ SAVE_PROGRESS_TO_MODEL = True
 
 RUN_LOCAL = False
 CONSTRUCT_DATA = False
-CROSS_VALIDATION = False
+CROSS_VALIDATION = True
 
 SHUFFLE_FOLD = True
 ORIGINAL_IMAGES = False
 COMBINED_IMAGES = False
-LAYER_REGULARIZATION = True
+LAYER_REGULARIZATION = False
 
 DATA_AUGMENTATION = True
 WITH_LANDMARKS = False
 WITH_HEATMAP = True
 LANDMARKS_ONLY = False
 
+LSTM_LAYER = False
 REGRESSION = True
 
 FOLD_ARRAY = [0, 1, 2, 3, 4]
-FOLD_SIZE = 115 # number of folders/subjects in one fold
-BATCH_SIZE = 32
+
+if CROSS_VALIDATION == True:
+    FOLD_SIZE = 120 # number of folders/subjects in one fold
+else:
+    FOLD_SIZE = 120
+
+BATCH_SIZE = 16
 
 PATH_TO_DATA = 'AFEW-VA'
 PATH_TO_EVALUATION = 'AFEW-VA_TEST'
@@ -77,7 +84,7 @@ from _models import *
 
 def run_model():
     if CONSTRUCT_DATA == True:
-        construct_data(PATH_TO_DATA, PATH_TO_EVALUATION, REGRESSION, ORIGINAL_IMAGES, WITH_LANDMARKS, WITH_HEATMAP, SHUFFLE_FOLD, FOLD_SIZE, FOLD_ARRAY)
+        construct_data(PATH_TO_DATA, PATH_TO_EVALUATION, REGRESSION, ORIGINAL_IMAGES, WITH_LANDMARKS, WITH_HEATMAP, SHUFFLE_FOLD, FOLD_SIZE, FOLD_ARRAY, LSTM_LAYER)
     else:
         fold_input_landmarks = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
         test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
@@ -90,7 +97,13 @@ def run_model():
             test_data_input_2 = np.load('numpy/X_test_input_original.npy', allow_pickle=True)
             test_data_input = np.load('numpy/X_test_input.npy', allow_pickle=True)
             test_data_target = np.load('numpy/Y_test_target.npy', allow_pickle=True)
-
+        elif LSTM_LAYER == True:
+            if WITH_HEATMAP == True:
+                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
+                test_data_input = np.load('numpy/X_test_input_heatmap.npy', allow_pickle=True)
+            if REGRESSION == True:
+                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
+                test_data_target = np.load('numpy/Y_test_target_regr.npy', allow_pickle=True)
         elif ORIGINAL_IMAGES == True and SHUFFLE_FOLD == True:
             if WITH_HEATMAP == True:
                 fold_input = np.load('numpy/X_fold_input_shuffled_original_heatmap.npy', allow_pickle=True)
@@ -113,8 +126,8 @@ def run_model():
         elif ORIGINAL_IMAGES == False and SHUFFLE_FOLD == True:
             
             if WITH_HEATMAP == True:
-                fold_input = np.load('numpy/X_fold_input_shuffled_heatmap.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled_heatmap.npy', allow_pickle=True)
+                fold_input = np.load('numpy/X_fold_input_shuffled_heatmap_ALL.npy', allow_pickle=True)
+                # test_data_input = np.load('numpy/X_test_input_shuffled_heatmap.npy', allow_pickle=True)
             elif WITH_LANDMARKS == True:
                 fold_input = np.load('numpy/X_fold_input_shuffled_landmarks.npy', allow_pickle=True)
                 test_data_input = np.load('numpy/X_test_input_shuffled_landmarks.npy', allow_pickle=True)
@@ -123,8 +136,8 @@ def run_model():
                 test_data_input = np.load('numpy/X_test_input_shuffled.npy', allow_pickle=True)
             
             if REGRESSION == True:
-                fold_target = np.load('numpy/Y_fold_target_shuffled_regr.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_shuffled_regr.npy', allow_pickle=True)
+                fold_target = np.load('numpy/Y_fold_target_shuffled_regr_ALL.npy', allow_pickle=True)
+                #test_data_target = np.load('numpy/Y_test_target_shuffled_regr.npy', allow_pickle=True)
             else:
                 fold_target = np.load('numpy/Y_fold_target_shuffled.npy', allow_pickle=True)
                 test_data_target = np.load('numpy/Y_test_target_shuffled.npy', allow_pickle=True)
@@ -136,10 +149,22 @@ def run_model():
             test_data_target = np.load('numpy/Y_test_target_original.npy', allow_pickle=True)      
             
         elif ORIGINAL_IMAGES == False and SHUFFLE_FOLD == False:
-            fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
-            fold_target = np.load('numpy/Y_fold_target.npy', allow_pickle=True)
-            test_data_input = np.load('numpy/X_test_input.npy', allow_pickle=True)
-            test_data_target = np.load('numpy/Y_test_target.npy', allow_pickle=True)
+            if WITH_HEATMAP == True:
+                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
+                test_data_input = np.load('numpy/X_test_input_heatmap.npy', allow_pickle=True)
+            elif WITH_LANDMARKS == True:
+                fold_input = np.load('numpy/X_fold_input_landmarks_img.npy', allow_pickle=True)
+                test_data_input = np.load('numpy/X_test_input_landmarks_img.npy', allow_pickle=True)
+            else:
+                fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
+                test_data_input = np.load('numpy/X_test_input.npy', allow_pickle=True)
+            
+            if REGRESSION == True:
+                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
+                test_data_target = np.load('numpy/Y_test_target_regr.npy', allow_pickle=True)
+            else:
+                fold_target = np.load('numpy/Y_fold_target.npy', allow_pickle=True)
+                test_data_target = np.load('numpy/Y_test_target.npy', allow_pickle=True)
 
 
         # K-fold Cross Validation model evaluation
@@ -167,27 +192,58 @@ def run_model():
                 log_dir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
                 tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
-                inputs_test = fold_input[i]
-                targets_test = fold_target[i]
+                inputs_test = np.array(fold_input[i])
+                targets_test = np.array(fold_target[i])
                 inputs_train = []
                 targets_train = []
 
+                if i < 4:
+                    j = i + 1
+                else:
+                    j = 0
+                inputs_validation = np.array(fold_input[j])
+                targets_validation = np.array(fold_target[j])
+
                 for t in FOLD_ARRAY:
-                    if t != i:
+                    if t != i and t != j:
                         if inputs_train != []:
                             inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
                             targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
                         else:
                             inputs_train = np.array(fold_input[t])
                             targets_train = np.array(fold_target[t])
-                            print(inputs_train[t].shape)
+                
+                # x = inputs_train
+                # y = targets_train
+                # inputs_train, inputs_validation, targets_train, targets_validation = train_test_split(x, y, test_size=0.2, shuffle=False)
 
+                if SHUFFLE_FOLD == True:
+                    inputs_train, targets_train = shuffle(inputs_train, targets_train, random_state=0)
+                    inputs_validation, targets_validation = shuffle(inputs_validation, targets_validation, random_state=0)
 
-                model = custom_vgg_model(False)
+                print(inputs_train.shape)
+                print(inputs_validation.shape)
+                print(inputs_test.shape)
+
+                datagen = ImageDataGenerator(
+                    rotation_range=30,
+                    width_shift_range=0.25,
+                    height_shift_range=0.25,
+                    horizontal_flip=True,
+                    brightness_range=[0.5, 1.5],
+                    zoom_range=0.3)
+          
+                datagen.fit(inputs_train)
+                gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
+                train_steps = len(gen1)
+                train = multi_out(gen1)
+
+                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.summary()
-                opt = Adam(learning_rate = 0.001)
+                opt = Adam(learning_rate = 0.0001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), batch_size=BATCH_SIZE, verbose=1, epochs=3)
+                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
+                 
                 model.save_weights("model_checkpoints/model_non_trainable.h5")
 
                 history_accuracy_1.extend(scores.history['out1_accuracy'])
@@ -205,13 +261,13 @@ def run_model():
                 val_history_corr_2.extend(scores.history['val_out2_corr'])
                 val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
-                model = custom_vgg_model(True)
+                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.load_weights("model_checkpoints/model_non_trainable.h5")
                 model.summary()
-                opt = Adam(learning_rate = 0.0001)
+                opt = Adam(learning_rate = 0.00001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), batch_size=BATCH_SIZE, verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop, cb_learningRate])
-                
+                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+    
                 model.load_weights("model_checkpoints/model_best.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
@@ -261,7 +317,7 @@ def run_model():
             my_dict['val_out2_rmse'] = val_history_rmse_2
         
         else:
-            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_weights_only=True, save_best_only=True)
             cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20) # waiting for X consecutive epochs that don't reduce the val_loss
             # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.0001, verbose=1)
             cb_learningRate =  LearningRateScheduler(scheduler)
@@ -297,28 +353,89 @@ def run_model():
             else:
                 i = 0
                 inputs_test = fold_input[i]
-                inputs_test_landmarks = fold_input_landmarks[i]
+                # inputs_test_landmarks = fold_input_landmarks[i]
                 targets_test = fold_target[i]
                 
-
                 inputs_train = []
-                inputs_train_landmarks = []
                 targets_train = []
 
+                if i < 4:
+                    j = i + 1
+                else:
+                    j = 0
+                inputs_validation = np.array(fold_input[j])
+                targets_validation = np.array(fold_target[j])
+
                 for t in FOLD_ARRAY:
-                    if t != i:
+                    if t != i and t != j:
                         if inputs_train != []:
                             inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
                             targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
-                            inputs_train_landmarks = np.concatenate((fold_input_landmarks[t], inputs_train_landmarks), axis=0)
+                            # inputs_train_landmarks = np.concatenate((fold_input_landmarks[t], inputs_train_landmarks), axis=0)
                         else:
                             inputs_train = np.array(fold_input[t])
                             targets_train = np.array(fold_target[t])
-                            inputs_train_landmarks = np.array(fold_input_landmarks[t])
-                inputs_train, targets_train, inputs_train_landmarks = shuffle(inputs_train, targets_train, inputs_train_landmarks, random_state=0)
+                            # inputs_train_landmarks = np.array(fold_input_landmarks[t])
+                
+                if SHUFFLE_FOLD == True:
+                    inputs_train, targets_train = shuffle(inputs_train, targets_train, random_state=0)
+                    inputs_validation, targets_validation = shuffle(inputs_validation, targets_validation, random_state=0)
+                    
+                # x = inputs_traing
+                # y = targets_train
+                # inputs_train, inputs_validation, targets_train, targets_validation = train_test_split(x, y, test_size=0.2, random_state=42)
+                
                 print(inputs_train.shape)
                 print(targets_train.shape)
-                print(inputs_train_landmarks.shape)
+
+
+            # if DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
+            #     datagen = ImageDataGenerator(
+            #         # featurewise_center=True,
+            #         # featurewise_std_normalization=True,
+            #         rotation_range=30,
+            #         width_shift_range=0.25,
+            #         height_shift_range=0.25,
+            #         horizontal_flip=True,
+            #         brightness_range=[0.5, 1.0],
+            #         zoom_range=0.3)
+          
+            #     datagen.fit(inputs_train)
+            #     gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
+            #     train_steps = len(gen1)
+            #     train = multi_out(gen1)
+
+            #     datagen_val = ImageDataGenerator(
+            #         # featurewise_center=True,
+            #         # featurewise_std_normalization=True,
+            #         rotation_range=30,
+            #         width_shift_range=0.25,
+            #         height_shift_range=0.25,
+            #         horizontal_flip=True,
+            #         brightness_range=[0.5, 1.0],
+            #         zoom_range=0.3)
+
+            #     datagen_val.fit(inputs_test)
+            #     gen2 = datagen_val.flow(inputs_test, targets_test, batch_size=BATCH_SIZE)
+            #     val_steps = len(gen2)
+            #     val = multi_out(gen2)
+
+            #     model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+            #     model.summary()
+            #     opt = Adam(learning_rate = 0.001)
+            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=3)
+            #     model.save_weights("model_checkpoints/model_non_trainable.h5")
+
+            #     model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+            #     model.load_weights("model_checkpoints/model_non_trainable.h5")
+            #     model.summary()
+            #     opt = Adam(learning_rate = 0.0001)
+            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                
+            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop, cb_learningRate])
+            #     model.load_weights("model_checkpoints/model_best.h5")
+            #     result = model.evaluate(test_data_input, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
 
             if DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
@@ -329,82 +446,33 @@ def run_model():
                     width_shift_range=0.25,
                     height_shift_range=0.25,
                     horizontal_flip=True,
-                    brightness_range=[0.5, 1.0],
+                    # brightness_range=[0.5, 1.0],
+                    brightness_range=[0.5, 1.5],
                     zoom_range=0.3)
-          
+
+                inputs_train = np.array(inputs_train)
+
                 datagen.fit(inputs_train)
                 gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
                 train_steps = len(gen1)
                 train = multi_out(gen1)
 
-                datagen_val = ImageDataGenerator(
-                    # featurewise_center=True,
-                    # featurewise_std_normalization=True,
-                    rotation_range=30,
-                    width_shift_range=0.25,
-                    height_shift_range=0.25,
-                    horizontal_flip=True,
-                    brightness_range=[0.5, 1.0],
-                    zoom_range=0.3)
-
-                datagen_val.fit(inputs_test)
-                gen2 = datagen_val.flow(inputs_test, targets_test, batch_size=BATCH_SIZE)
-                val_steps = len(gen2)
-                val = multi_out(gen2)
-
-                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION)
-                model.summary()
-                opt = Adam(learning_rate = 0.001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=3)
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
-
-                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
+                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.summary()
                 opt = Adam(learning_rate = 0.0001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
+                model.save_weights("model_checkpoints/model_non_trainable.h5")
+
+                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+                model.load_weights("model_checkpoints/model_non_trainable.h5")
+                model.summary()
+                opt = Adam(learning_rate = 0.00001)
+                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+
                 model.load_weights("model_checkpoints/model_best.h5")
-                result = model.evaluate(test_data_input, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
-
-            # elif DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
-            #     datagen = ImageDataGenerator(
-            #         # featurewise_center=True,
-            #         # featurewise_std_normalization=True,
-            #         rotation_range=30,
-            #         width_shift_range=0.25,
-            #         height_shift_range=0.25,
-            #         horizontal_flip=True,
-            #         brightness_range=[0.5, 1.0],
-            #         zoom_range=0.3)
-
-            #     inputs_train = np.array(inputs_train)
-
-            #     datagen.fit(inputs_train)
-            #     gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
-            #     train_steps = len(gen1)
-            #     train = multi_out(gen1)
-
-            #     model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION)
-            #     model.summary()
-            #     opt = Adam(learning_rate = 0.001)
-            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), validation_steps=(len(inputs_test)/BATCH_SIZE) ,verbose=1, epochs=3)
-            #     model.save_weights("model_checkpoints/model_non_trainable.h5")
-
-            #     model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION)
-            #     model.load_weights("model_checkpoints/model_non_trainable.h5")
-            #     model.summary()
-            #     opt = Adam(learning_rate = 0.0001)
-            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                
-            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), validation_steps=(len(inputs_test)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-            #     model.load_weights("model_checkpoints/model_best.h5")
-            #     result = model.evaluate(test_data_input, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
+                result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
             elif LANDMARKS_ONLY == True:
                 model = custom_landmarks_model()
@@ -436,14 +504,14 @@ def run_model():
                 result = model.evaluate([test_data_input, test_data_input_2], [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
             elif COMBINED_IMAGES == False and WITH_LANDMARKS == False:
-                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION)
+                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.summary()
                 opt = Adam(learning_rate = 0.001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3, callbacks = [cb_bestModel])
                 model.save_weights("model_checkpoints/model_non_trainable.h5")
                 
-                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION)
+                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.load_weights("model_checkpoints/model_non_trainable.h5")
                 model.summary()
                 opt = Adam(learning_rate = 0.0001)
@@ -455,14 +523,14 @@ def run_model():
             
             elif COMBINED_IMAGES == False and WITH_LANDMARKS == True:
                 test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
-                model = custom_vgg_model_w_landmarks(False, COMBINED_IMAGES, LAYER_REGULARIZATION)
+                model = custom_vgg_model_w_landmarks(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.summary()
                 opt = Adam(learning_rate = 0.001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                 scores = model.fit([inputs_train, inputs_train_landmarks], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_test, inputs_test_landmarks], [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3, callbacks = [cb_bestModel ,cb_earlyStop])
                 model.save_weights("model_checkpoints/model_non_trainable.h5")
 
-                model = custom_vgg_model_w_landmarks(True, COMBINED_IMAGES, LAYER_REGULARIZATION)
+                model = custom_vgg_model_w_landmarks(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.load_weights("model_checkpoints/model_non_trainable.h5")
                 model.summary()
                 opt = Adam(learning_rate = 0.0001)

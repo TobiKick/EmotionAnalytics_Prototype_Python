@@ -151,45 +151,54 @@ def get_labels_from_file(path_to_file, folder):
     return filenames, labels
 
 
-def constructing_data_list_eval(root_data_dir):
+def constructing_data_list_eval(root_data_dir, with_LSTM):
     filenames = []
     labels = []
+    filenames_list = []
+    labels_list = []
     
     for train_dir in os.listdir(root_data_dir):
         for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
             for file in files:
                 if file[-5:] == '.json':
                     f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
-                    filenames.extend(f)
-                    labels.extend(l)
-
-    print(len(filenames))
+                    if with_LSTM == True:
+                        filenames.append(f)
+                        labels.append(l)
+                    else:
+                        filenames.extend(f)
+                        labels.extend(l)
+        
     return np.array(filenames), np.array(labels)
 
 
-def constructing_data_list(root_data_dir, fold_size):
+def constructing_data_list(root_data_dir, fold_size, with_LSTM):
     filenames = []
     labels = []
     filenames_list = []
     labels_list = []
-    i = 1
+    i = 0
 
     for train_dir in os.listdir(root_data_dir):
         for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
             for file in files:
                 if file[-5:] == '.json':
                     f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
-                    filenames.extend(f)
-                    labels.extend(l)
-
+                    if with_LSTM == True:
+                        filenames.append(f)
+                        labels.append(l)
+                    else:
+                        filenames.extend(f)
+                        labels.extend(l)
+        i = i + 1
+        print(i)
         if i == fold_size:
             filenames_list.append(np.array(filenames))
             labels_list.append(np.array(labels))
             filenames = []
             labels = []
             i = 0
-
-        i = i + 1
+            print("FOLD DONE")
 
     return np.array(filenames_list), np.array(labels_list)
 
@@ -251,17 +260,22 @@ def corr(y_true, y_pred):
 
 
 def corr_loss(y_true, y_pred):
-    x = y_true
-    y = y_pred
-    mx = K.mean(x)
-    my = K.mean(y)
-    xm, ym = x-mx, y-my
-    r_num = K.sum(tf.multiply(xm,ym))
-    r_den = K.sqrt(tf.multiply(K.sum(K.square(xm)), K.sum(K.square(ym))))
-    r = r_num / r_den
+    inp = corr(y_true, y_pred)
+    out = inp * (-1)
+    return out
 
-    r = K.maximum(K.minimum(r, 1.0), -1.0)
-    return 1 - K.square(r)
+# def corr_loss(y_true, y_pred):
+#     x = y_true
+#     y = y_pred
+#     mx = K.mean(x)
+#     my = K.mean(y)
+#     xm, ym = x-mx, y-my
+#     r_num = K.sum(tf.multiply(xm,ym))
+#     r_den = K.sqrt(tf.multiply(K.sum(K.square(xm)), K.sum(K.square(ym))))
+#     r = tf.math.divide_no_nan(r_num, r_den, name="division")
+#     #r = r_num / r_den
+#     r = K.maximum(K.minimum(r, 1.0), -1.0)
+#     return 1 - K.square(r)
 
 
 class CustomFineTuningCallback(keras.callbacks.Callback):
@@ -292,9 +306,67 @@ def multi_out(gen):
         yield x, [y[:,0], y[:,1]]
 
 
-def construct_data(path_to_data, path_to_evaluation, regression, original_images, with_landmarks, with_heatmap, shuffle_fold, fold_size, fold_array):
-    if original_images == True and shuffle_fold == True:
-        filenames, labels = constructing_data_list(path_to_data, fold_size)
+def construct_data(path_to_data, path_to_evaluation, regression, original_images, with_landmarks, with_heatmap, shuffle_fold, fold_size, fold_array, with_LSTM):
+    if with_LSTM == True:
+        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
+
+        fold_input = []
+        fold_target = []
+
+        for i in fold_array:
+            fold_i = []
+            fold_t = []
+            for l in labels[i]:
+                if regression == True:
+                    target = np.true_divide(l, 10)
+                fold_t.append(target)
+            
+            for f in filenames[i]:
+                preload_input = preloading_data(path_to_data, f, original_images, with_landmarks, with_heatmap)
+                fold_i.append(preload_input)
+
+            fold_target.append(fold_t)
+            fold_input.append(fold_i)
+
+        fold_input = np.array(fold_input)
+        fold_target = np.array(fold_target)
+        
+        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
+        
+        test_input = []
+        for subject in test_files:
+            out = preloading_data(path_to_evaluation, subject, original_images, with_landmarks, with_heatmap)
+            test_input.append(out)
+
+        if with_heatmap == True:
+            np.save('numpy/X_fold_input_heatmap_lstm.npy', fold_input)
+            np.save('numpy/X_test_input_heatmap_lstm.npy', test_input)
+        if with_landmarks == True:
+            np.save('numpy/X_fold_input_landmarks_img_lstm.npy', fold_input)
+            np.save('numpy/X_test_input_landmarks_img_lstm.npy', test_input)
+        else:
+            np.save('numpy/X_fold_input_lstm.npy', fold_input)
+            np.save('numpy/X_test_input_lstm.npy', test_input)
+
+        if regression == True:
+            test_target = []
+            for l in test_labels:
+                out = np.true_divide(l, 10)
+                test_target.append(out)
+            test_target = np.array(test_target)
+            np.save('numpy/Y_fold_target_regr_lstm.npy', fold_target)
+            np.save('numpy/Y_test_target_regr_lstm.npy', test_target)
+        else:
+            test_target_V = one_hot_encoding(test_labels[:,0])
+            test_target_A = one_hot_encoding(test_labels[:,1])
+            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
+            for i in range(0, len(test_target_V)):
+                test_target[i] = [test_target_V[i], test_target_A[i]]
+            np.save('numpy/Y_fold_target_lstm.npy', fold_target)
+            np.save('numpy/Y_test_target_lstm.npy', test_target)
+            
+    elif original_images == True and shuffle_fold == True:
+        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
 
         fold_input = []
         fold_target = []
@@ -318,7 +390,7 @@ def construct_data(path_to_data, path_to_evaluation, regression, original_images
         fold_target = np.array(fold_target)
         fold_input = np.array(fold_input)
 
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation)
+        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
         test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)    
 
         if with_landmarks == True:
@@ -346,7 +418,7 @@ def construct_data(path_to_data, path_to_evaluation, regression, original_images
     
         
     elif original_images == False and shuffle_fold == True:
-        filenames, labels = constructing_data_list(path_to_data, fold_size)
+        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
         
         fold_input = []
         fold_target = []
@@ -369,23 +441,18 @@ def construct_data(path_to_data, path_to_evaluation, regression, original_images
         fold_input = np.array(fold_input)
         fold_target = np.array(fold_target)        
 
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation)
+        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
         test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
         
-        if with_landmarks == True:
-            if with_heatmap == True:
-                np.save('numpy/X_fold_input_shuffled_heatmap.npy', fold_input)
-                np.save('numpy/X_test_input_shuffled_heatmap.npy', test_input)
-            else:
-                np.save('numpy/X_fold_input_shuffled_landmarks.npy', fold_input)
-                np.save('numpy/X_test_input_shuffled_landmarks.npy', test_input)
+        if with_heatmap == True:
+            np.save('numpy/X_fold_input_shuffled_heatmap.npy', fold_input)
+            np.save('numpy/X_test_input_shuffled_heatmap.npy', test_input)
+        elif with_landmarks == True:
+            np.save('numpy/X_fold_input_shuffled_landmarks.npy', fold_input)
+            np.save('numpy/X_test_input_shuffled_landmarks.npy', test_input)
         else:
             np.save('numpy/X_fold_input_shuffled.npy', fold_input)
             np.save('numpy/X_test_input_shuffled.npy', test_input)
-
-
-
-
 
         if regression == True:
             test_target = np.true_divide(test_labels, 10)
@@ -402,7 +469,7 @@ def construct_data(path_to_data, path_to_evaluation, regression, original_images
 
 
     elif original_images == True and shuffle_fold == False:
-        filenames, labels = constructing_data_list(path_to_data, fold_size)
+        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
 
         fold_input = []
         fold_input_landmarks = []
@@ -422,33 +489,60 @@ def construct_data(path_to_data, path_to_evaluation, regression, original_images
         np.save('numpy/X_fold_input_original.npy', fold_input)
         np.save('numpy/X_fold_input_landmarks.npy', fold_input_landmarks)
             
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation)
+        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
         test_input, test_input_landmarks = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
         test_target = np.true_divide(test_labels, 10)
         np.save('numpy/Y_test_target_original.npy', test_target)
         np.save('numpy/X_test_input_original.npy', test_input)
         np.save('numpy/X_test_input_landmarks.npy', test_input_landmarks)
 
-
-    else:
-        filenames, labels = constructing_data_list(path_to_data, fold_size)
+    elif original_images == False and shuffle_fold == False:
+        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
 
         fold_input = []
         fold_target = []
         for i in fold_array:
-            target = np.true_divide(labels[i], 10)
+            l = labels[i]
+            if regression == True:
+                target = np.true_divide(l, 10)
+            else:
+                target_V = one_hot_encoding(l[:,0])
+                target_A = one_hot_encoding(l[:,1])
+                target = np.zeros((len(target_V), 2, len(target_V[0])))
+                for i in range(0, len(target_V)):
+                    target[i] = [target_V[i], target_A[i]]
+
             fold_target.append(target)
 
             preload_input = preloading_data(path_to_data, filenames[i], original_images, with_landmarks, with_heatmap)
             fold_input.append(preload_input)
 
-        fold_target = np.array(fold_target)
         fold_input = np.array(fold_input)
-        np.save('numpy/Y_fold_target_landmarks.npy', fold_target)
-        np.save('numpy/X_fold_input.npy', fold_input)
-
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation)
+        fold_target = np.array(fold_target)
+        
+        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
         test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
-        test_target = np.true_divide(test_labels, 10)
-        np.save('numpy/X_test_input_landmarks.npy', test_input)
-        np.save('numpy/Y_test_target.npy', test_target)
+        
+        if with_heatmap == True:
+            np.save('numpy/X_fold_input_heatmap.npy', fold_input)
+            np.save('numpy/X_test_input_heatmap.npy', test_input)
+        if with_landmarks == True:
+            np.save('numpy/X_fold_input_landmarks_img.npy', fold_input)
+            np.save('numpy/X_test_input_landmarks_img.npy', test_input)
+        else:
+            np.save('numpy/X_fold_input.npy', fold_input)
+            np.save('numpy/X_test_input.npy', test_input)
+
+        if regression == True:
+            test_target = np.true_divide(test_labels, 10)
+            np.save('numpy/Y_fold_target_regr.npy', fold_target)
+            np.save('numpy/Y_test_target_regr.npy', test_target)
+        else:
+            test_target_V = one_hot_encoding(test_labels[:,0])
+            test_target_A = one_hot_encoding(test_labels[:,1])
+            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
+            for i in range(0, len(test_target_V)):
+                test_target[i] = [test_target_V[i], test_target_A[i]]
+            np.save('numpy/Y_fold_target.npy', fold_target)
+            np.save('numpy/Y_test_target.npy', test_target)
+            

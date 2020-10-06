@@ -15,7 +15,7 @@ sess2 = tf.compat.v1.Session()
 graph = tf.compat.v1.get_default_graph()
 tf.compat.v1.keras.backend.set_session(sess2)
 
-def custom_vgg_model(is_trainable, combined_images, layer_regularization, regression):
+def custom_vgg_model(is_trainable, combined_images, layer_regularization, regression, LSTM_layer):
     global sess2
     global graph
     with graph.as_default():
@@ -25,13 +25,27 @@ def custom_vgg_model(is_trainable, combined_images, layer_regularization, regres
         
         if combined_images == False and layer_regularization == False:
             model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
-            for layer in model_VGGFace.layers:
-                layer.trainable = is_trainable
+                        
+            if is_trainable == False:
+                for layer in model_VGGFace.layers:
+                    layer.trainable = False
+            else:
+                for layer in model_VGGFace.layers:
+                    layer.trainable = True
 
             last_layer = model_VGGFace.get_layer('avg_pool').output    
-            x = Flatten(name='flatten')(last_layer)
+            print(last_layer.shape)
+
+            if LSTM_layer == True:
+                x = Reshape((1, last_layer.shape[0], last_layer.shape[1]))(last_layer)
+                x = LSTM(16)(x)
+                x = Flatten(name='flatten')(x)
+            else:
+                x = Flatten(name='flatten')(last_layer)
+            
+            x = Dropout(0.7)(x)
             x = Dense(1024, activation='relu')(x)
-            x = Dropout(0.3)(x)
+            x = Dropout(0.6)(x)
             x = BatchNormalization()(x)
 
             if regression == True:
@@ -47,7 +61,7 @@ def custom_vgg_model(is_trainable, combined_images, layer_regularization, regres
         elif combined_images == False and layer_regularization == True:
             model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
 
-            regularizer = keras.regularizers.l2(0.01)
+            regularizer = keras.regularizers.l1(0.01)
             if is_trainable == False:
                 for layer in model_VGGFace.layers:
                     layer.trainable = False
@@ -61,11 +75,21 @@ def custom_vgg_model(is_trainable, combined_images, layer_regularization, regres
                 model_json = model_VGGFace.to_json()
                 model_VGGFace = keras.models.model_from_json(model_json)
                 model_VGGFace.load_weights("model_checkpoints/VGGFace_Regularization.h5", by_name=True)
+                
+                # for layer in model_VGGFace.layers[:-25]:   ## all layers except the last .. layers
+                #     layer.trainable = False
 
-            last_layer = model_VGGFace.get_layer('avg_pool').output    
-            x = Flatten(name='flatten')(last_layer)
+            last_layer = model_VGGFace.get_layer('avg_pool').output  
+
+            if LSTM_layer == True:
+                x = Reshape((last_layer.shape[1], 2048))(last_layer)
+                x = LSTM(16)(x)
+            else:
+                x = Flatten(name='flatten')(last_layer)
+            
+            x = Dropout(0.7)(x)
             x = Dense(1024, activation='relu')(x)
-            x = Dropout(0.3)(x)
+            x = Dropout(0.6)(x)
             x = BatchNormalization()(x)
             
             if regression == True:
