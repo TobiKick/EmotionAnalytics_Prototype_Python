@@ -22,3 +22,4 @@ MasterThesis_Prototype_Python.iml
 /training/datagen_preview
 /training/best_model.h5
 /training/shape_predictor_68_face_landmarks.dat
+/training/__pycache__
