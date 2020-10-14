@@ -298,7 +298,7 @@ def scheduler(epoch, lr):
     if epoch == 0:
         return float(lr)
     else:
-        return float(lr * 0.90) 
+        return float(lr * 0.9) 
 
 
 def multi_out(gen):

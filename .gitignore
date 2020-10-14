@@ -1,12 +1,17 @@
 /.idea 
 /.ipynb_checkpoints 
 MasterThesis_Prototype_Python.iml
+/venv
+/venv/*
+
 
 /app/.ipynb_checkpoints
 /app/test.jpg
 /app/model_top.h5
 /app/model_best.h5
 /app/video.avi
+/app/dist
+/app/config
 
 /training/.ipynb_checkpoints
 /training/model_checkpoints

@@ -15,7 +15,7 @@ sess2 = tf.compat.v1.Session()
 graph = tf.compat.v1.get_default_graph()
 tf.compat.v1.keras.backend.set_session(sess2)
 
-def custom_vgg_model(is_trainable, combined_images, layer_regularization, regression, LSTM_layer):
+def custom_vgg_model(is_trainable, conv_block, combined_images, layer_regularization, regression, LSTM_layer):
     global sess2
     global graph
     with graph.as_default():
@@ -25,13 +25,30 @@ def custom_vgg_model(is_trainable, combined_images, layer_regularization, regres
         
         if combined_images == False and layer_regularization == False:
             model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
-                        
+
             if is_trainable == False:
                 for layer in model_VGGFace.layers:
                     layer.trainable = False
             else:
+                if conv_block == 1:
+                    l_name = 'conv5_3_1x1_reduce'
+                elif conv_block == 2:
+                    l_name = 'conv5_2_1x1_reduce'
+                elif conv_block == 3:
+                    l_name = 'conv5_1_1x1_reduce'
+                elif conv_block == 4:
+                    l_name = 'conv4_6_1x1_reduce'
+
+                model_VGGFace.trainable = False
+                set_trainable = False
                 for layer in model_VGGFace.layers:
-                    layer.trainable = True
+                    if layer.name == l_name:
+                        set_trainable = True
+                    if set_trainable == True:
+                        layer.trainable = True
+                        print(layer.name)
+                    else:
+                        layer.trainable = False          
 
             last_layer = model_VGGFace.get_layer('avg_pool').output    
             print(last_layer.shape)
@@ -44,6 +61,7 @@ def custom_vgg_model(is_trainable, combined_images, layer_regularization, regres
                 x = Flatten(name='flatten')(last_layer)
             
             x = Dropout(0.7)(x)
+            # x = Dense(1024, activation='relu', kernel_regularizer=keras.regularizers.l2(0.001))(x)
             x = Dense(1024, activation='relu')(x)
             x = Dropout(0.6)(x)
             x = BatchNormalization()(x)

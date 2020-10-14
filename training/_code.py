@@ -10,6 +10,7 @@ import cv2
 import os
 import csv
 from imutils import face_utils 
+import math
 
 import argparse 
 import imutils 
@@ -34,7 +35,7 @@ SAVE_PROGRESS_TO_MODEL = True
 
 RUN_LOCAL = False
 CONSTRUCT_DATA = False
-CROSS_VALIDATION = True
+CROSS_VALIDATION = False
 
 SHUFFLE_FOLD = True
 ORIGINAL_IMAGES = False
@@ -86,8 +87,8 @@ def run_model():
     if CONSTRUCT_DATA == True:
         construct_data(PATH_TO_DATA, PATH_TO_EVALUATION, REGRESSION, ORIGINAL_IMAGES, WITH_LANDMARKS, WITH_HEATMAP, SHUFFLE_FOLD, FOLD_SIZE, FOLD_ARRAY, LSTM_LAYER)
     else:
-        fold_input_landmarks = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
-        test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
+        # fold_input_landmarks = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
+        # test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
         if COMBINED_IMAGES == True:
             fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
             fold_target = np.load('numpy/Y_fold_target.npy', allow_pickle=True)
@@ -184,8 +185,13 @@ def run_model():
 
         if CROSS_VALIDATION == True:
             for i in FOLD_ARRAY:
-                cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
-                cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20) # waiting for X consecutive epochs that don't reduce the val_loss
+                
+                cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', 
+                                                mode='min', verbose=1, save_best_only=True)
+
+                cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) 
+                
+                # waiting for X consecutive epochs that don't reduce the val_loss
                 # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.0001, verbose=1)
                 cb_learningRate =  LearningRateScheduler(scheduler)
 
@@ -318,7 +324,7 @@ def run_model():
         
         else:
             cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_weights_only=True, save_best_only=True)
-            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20) # waiting for X consecutive epochs that don't reduce the val_loss
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) # waiting for X consecutive epochs that don't reduce the val_loss
             # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.0001, verbose=1)
             cb_learningRate =  LearningRateScheduler(scheduler)
             
@@ -389,87 +395,68 @@ def run_model():
                 print(targets_train.shape)
 
 
-            # if DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
-            #     datagen = ImageDataGenerator(
-            #         # featurewise_center=True,
-            #         # featurewise_std_normalization=True,
-            #         rotation_range=30,
-            #         width_shift_range=0.25,
-            #         height_shift_range=0.25,
-            #         horizontal_flip=True,
-            #         brightness_range=[0.5, 1.0],
-            #         zoom_range=0.3)
-          
-            #     datagen.fit(inputs_train)
-            #     gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
-            #     train_steps = len(gen1)
-            #     train = multi_out(gen1)
-
-            #     datagen_val = ImageDataGenerator(
-            #         # featurewise_center=True,
-            #         # featurewise_std_normalization=True,
-            #         rotation_range=30,
-            #         width_shift_range=0.25,
-            #         height_shift_range=0.25,
-            #         horizontal_flip=True,
-            #         brightness_range=[0.5, 1.0],
-            #         zoom_range=0.3)
-
-            #     datagen_val.fit(inputs_test)
-            #     gen2 = datagen_val.flow(inputs_test, targets_test, batch_size=BATCH_SIZE)
-            #     val_steps = len(gen2)
-            #     val = multi_out(gen2)
-
-            #     model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-            #     model.summary()
-            #     opt = Adam(learning_rate = 0.001)
-            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=3)
-            #     model.save_weights("model_checkpoints/model_non_trainable.h5")
-
-            #     model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-            #     model.load_weights("model_checkpoints/model_non_trainable.h5")
-            #     model.summary()
-            #     opt = Adam(learning_rate = 0.0001)
-            #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                
-            #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=val, validation_steps=val_steps ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop, cb_learningRate])
-            #     model.load_weights("model_checkpoints/model_best.h5")
-            #     result = model.evaluate(test_data_input, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
-
             if DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
                 datagen = ImageDataGenerator(
-                    # featurewise_center=True,
-                    # featurewise_std_normalization=True,
                     rotation_range=30,
                     width_shift_range=0.25,
                     height_shift_range=0.25,
                     horizontal_flip=True,
-                    # brightness_range=[0.5, 1.0],
                     brightness_range=[0.5, 1.5],
                     zoom_range=0.3)
 
                 inputs_train = np.array(inputs_train)
-
                 datagen.fit(inputs_train)
                 gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
                 train_steps = len(gen1)
                 train = multi_out(gen1)
 
-                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+                model = custom_vgg_model(False, 0, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
                 model.summary()
-                opt = Adam(learning_rate = 0.0001)
+                opt = Adam(learning_rate = 0.001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                 scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
                 model.save_weights("model_checkpoints/model_non_trainable.h5")
 
-                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
-                model.summary()
-                opt = Adam(learning_rate = 0.00001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                history_accuracy_1.extend(scores.history['out1_accuracy'])
+                history_corr_1.extend(scores.history['out1_corr'])
+                history_rmse_1.extend(scores.history['out1_rmse'])
+                history_accuracy_2.extend(scores.history['out2_accuracy'])
+                history_corr_2.extend(scores.history['out2_corr'])
+                history_rmse_2.extend(scores.history['out2_rmse'])
+
+                val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
+                val_history_corr_1.extend(scores.history['val_out1_corr'])
+                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+
+                val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
+                val_history_corr_2.extend(scores.history['val_out2_corr'])
+                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+
+                for i in [1, 2, 3, 4]:
+                    model = custom_vgg_model(True, i, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+                    model.load_weights("model_checkpoints/model_non_trainable.h5")
+                    model.summary()
+                    opt = Adam(learning_rate = (0.001 * (math.exp((-1 * i)))))
+                    #opt = Adam(learning_rate = 0.0001)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                     
+                    scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                    model.save_weights("model_checkpoints/model_non_trainable.h5")
+
+                    history_accuracy_1.extend(scores.history['out1_accuracy'])
+                    history_corr_1.extend(scores.history['out1_corr'])
+                    history_rmse_1.extend(scores.history['out1_rmse'])
+                    history_accuracy_2.extend(scores.history['out2_accuracy'])
+                    history_corr_2.extend(scores.history['out2_corr'])
+                    history_rmse_2.extend(scores.history['out2_rmse'])
+
+                    val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
+                    val_history_corr_1.extend(scores.history['val_out1_corr'])
+                    val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+
+                    val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
+                    val_history_corr_2.extend(scores.history['val_out2_corr'])
+                    val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
                 model.load_weights("model_checkpoints/model_best.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
@@ -546,7 +533,22 @@ def run_model():
                 wr.writerow(result)
                 wr.writerow(model.metrics_names)
             
-            my_dict = scores.history
+            # my_dict = scores.history
+            my_dict = {}
+            my_dict['out1_accuracy'] = history_accuracy_1
+            my_dict['out1_corr'] = history_corr_1
+            my_dict['out1_rmse'] = history_rmse_1
+            my_dict['out2_accuracy'] = history_accuracy_2
+            my_dict['out2_corr'] = history_corr_2
+            my_dict['out2_rmse'] = history_rmse_2
+
+            my_dict['val_out1_accuracy'] = val_history_accuracy_1
+            my_dict['val_out1_corr'] = val_history_corr_1
+            my_dict['val_out1_rmse'] = val_history_rmse_1
+            my_dict['val_out2_accuracy'] = val_history_accuracy_2
+            my_dict['val_out2_corr'] = val_history_corr_2
+            my_dict['val_out2_rmse'] = val_history_rmse_2
+
 
             if SAVE_PROGRESS_TO_MODEL:
                 model.save_weights("model_checkpoints/model_top.h5")
