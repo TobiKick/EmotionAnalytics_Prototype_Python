@@ -11,7 +11,7 @@ MasterThesis_Prototype_Python.iml
 /app/model_best.h5
 /app/video.avi
 /app/dist
-/app/config
+/app/build
 
 /training/.ipynb_checkpoints
 /training/model_checkpoints
