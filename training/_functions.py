@@ -5,6 +5,7 @@
 import numpy as np
 from mtcnn import MTCNN
 from numpy import asarray
+from numpy import expand_dims
 from PIL import Image
 import cv2
 import os
@@ -13,20 +14,23 @@ import json
 import argparse 
 import imutils 
 import dlib 
+import pandas as pd
 
 from sklearn.utils import shuffle
 import tensorflow as tf
 import keras.backend as K
 import keras as keras
+from keras_vggface.utils import preprocess_input
 
-## from menpofit.io import load_fitter
-## from menpofit.aam import load_balanced_frontal_face_fitter
+from menpo.image import Image as menpo_image
+from menpo.shape import bounding_box
+from menpofit.io import load_fitter
+from menpofit.aam import load_balanced_frontal_face_fitter
 
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import OneHotEncoder
-
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, MinMaxScaler
 import imgaug as ia
 from imgaug.augmentables.heatmaps import HeatmapsOnImage
+from scipy.ndimage.filters import gaussian_filter
 
 ###########################################################################
 IMAGE_HEIGHT = 224
@@ -37,28 +41,145 @@ IMG_FORMAT = '.png'
 
 
 ## setting Keras sessions for each network - First Network
-sess = tf.compat.v1.Session()
-graph = tf.compat.v1.get_default_graph()
-tf.compat.v1.keras.backend.set_session(sess)
+# sess = tf.compat.v1.Session()
+# graph = tf.compat.v1.get_default_graph()
+# K.set_session(sess)
 
-detector = MTCNN()
+
 p = "shape_predictor_68_face_landmarks.dat"
 dlib_predictor = dlib.shape_predictor(p) 
 
 def detect_face(image):
-    global sess
-    global graph
-    with graph.as_default():
-        tf.compat.v1.keras.backend.set_session(sess)
-        face = detector.detect_faces(image)
-        if len(face) >= 1:
-            return face
-        else:
-            print("No face detected")
-            return []
+    # global sess
+    # global graph
+    # with graph.as_default():
+    #     K.set_session(sess)
+
+    detector = MTCNN()
+    face = detector.detect_faces(image)
 
 
-def extract_face_from_image(image, original_images, with_landmarks, with_heatmap, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
+    print(len(face))
+    if len(face) >= 1:
+        return face
+    elif len(face) > 1:
+        return face[0]
+    else:
+        print("No face detected")
+        print(face)
+        return []
+
+
+
+def extract_mask_from_image(image, original_images, extract_face_option, discard_undetected_faces, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
+    face_image = Image.fromarray(image)
+    # face_image = Image.fromarray((image * 255).astype(np.uint8))
+    face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+    image = asarray(face_image)
+
+    face = detect_face(image)
+    print(face)
+
+    if face == []: 
+        return [], []     # discard the image and its label from training
+    else:
+        # extract the bounding box from the requested face
+        box = np.asarray(face[0]["box"])
+        print(box)
+        box[box < 0] = 0
+        x1, y1, width, height =  box
+        x2, y2 = x1 + width, y1 + height
+            
+        rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
+        landmarks = dlib_predictor(image, rect)
+
+        points = []
+        for n in range(0,68):
+            x = landmarks.part(n).x
+            y = landmarks.part(n).y
+            points.append([x,y])
+        points = np.float32(points)
+
+        pt_map=np.zeros([IMAGE_WIDTH, IMAGE_HEIGHT])
+        try:
+            for point in points:
+                pt_map[int(point[1]),int(point[0])]=1
+    
+            mask_out = gaussian_filter(pt_map, sigma=1)
+        except:
+            mask_out=pt_map
+            print('Empty Mask')
+
+        out = image  
+        if original_images == False:
+            mask_boundary = mask_out[y1:y2, x1:x2]
+            mask_image = Image.fromarray(mask_boundary)
+            mask_image = mask_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+            mask_out = asarray(mask_image)
+
+            face_boundary = image[y1:y2, x1:x2]
+            face_image = Image.fromarray(face_boundary)
+            face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+            out = asarray(face_image)
+        
+        return out, mask_out
+
+# def extract_mask_from_image_GEN(image, original_images, extract_face_option, discard_undetected_faces, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
+#     img = image.copy()
+#     image = asarray(img)
+
+#     face = detect_face(image)
+#     print(face)
+
+#     if face == []: 
+#         return [], []     # discard the image and its label from training
+#     else:
+#         # extract the bounding box from the requested face
+#         box = np.asarray(face[0]["box"])
+#         print(box)
+#         box[box < 0] = 0
+#         x1, y1, width, height =  box
+#         x2, y2 = x1 + width, y1 + height
+            
+#         rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
+#         face_image = Image.fromarray((image * 255).astype(np.uint8))
+#         image = asarray(face_image)
+#         print(img.shape)
+#         landmarks = dlib_predictor(image, rect)
+
+#         points = []
+#         for n in range(0,68):
+#             x = landmarks.part(n).x
+#             y = landmarks.part(n).y
+#             points.append([x,y])
+#         points = np.float32(points)
+
+#         pt_map=np.zeros([IMAGE_WIDTH, IMAGE_HEIGHT])
+#         try:
+#             for point in points:
+#                 pt_map[int(point[1]),int(point[0])]=1
+    
+#             mask_out = gaussian_filter(pt_map, sigma=1)
+#         except:
+#             mask_out=pt_map
+#             print('Empty Mask')
+
+#         out = image  
+#         if original_images == False:
+#             mask_boundary = mask_out[y1:y2, x1:x2]
+#             mask_image = Image.fromarray(mask_boundary)
+#             mask_image = mask_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+#             mask_out = asarray(mask_image)
+
+#             face_boundary = image[y1:y2, x1:x2]
+#             face_image = Image.fromarray(face_boundary)
+#             face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+#             out = asarray(face_image)
+        
+#         return out, mask_out
+
+
+def extract_face_from_image(image, original_images, extract_face_option, discard_undetected_faces, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
     face_image = Image.fromarray(image)
     face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
     image = asarray(face_image)
@@ -66,16 +187,59 @@ def extract_face_from_image(image, original_images, with_landmarks, with_heatmap
     face = detect_face(image)
     print(face)
 
-    if face == []:    
-        return image
+    if face == []: 
+        if discard_undetected_faces == True:
+            return []      # discard the image and its label from training
+        else:
+            return image   # the original image
     else:
         # extract the bounding box from the requested face
-        box = np.asarray(face[0].get("box", ""))
+        box = np.asarray(face[0]["box"])
+        print(box)
         box[box < 0] = 0
         x1, y1, width, height =  box
         x2, y2 = x1 + width, y1 + height
 
-        if with_heatmap == True:
+        if extract_face_option == 1: # landmarks
+            rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
+            landmarks = dlib_predictor(image, rect)
+  
+            for n in range(0,68):
+                x=landmarks.part(n).x
+                y=landmarks.part(n).y
+                cv2.circle(image, (x, y), 4, (0, 0, 255), -1)  # image, cord (x, y), radius 4, color (0, 0, 255), thickness -1
+            
+            out = image
+            if original_images == False:
+                face_boundary = image[y1:y2, x1:x2]
+                face_image = Image.fromarray(face_boundary)
+                face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+                out = asarray(face_image)
+            return out
+
+
+        elif extract_face_option == 2: # soft attention
+            rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
+            landmarks = dlib_predictor(image, rect)
+
+            overlay = image.copy()   
+            for n in range(0,68):
+                x=landmarks.part(n).x
+                y=landmarks.part(n).y
+                cv2.circle(overlay, (x, y), 4, (255, 0, 0), -1)  # image, cord (x, y), radius 4, color (0, 0, 255), thickness -1
+            alpha = 0.3
+            image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, 0)
+            
+            out = image
+            if original_images == False:
+                face_boundary = image[y1:y2, x1:x2]
+                face_image = Image.fromarray(face_boundary)
+                face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
+                out = asarray(face_image)
+            return out
+        
+
+        elif extract_face_option == 3: # heatmap
             rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
             landmarks = dlib_predictor(image, rect)
             xy  = []
@@ -104,26 +268,17 @@ def extract_face_from_image(image, original_images, with_landmarks, with_heatmap
             
             return out
 
-        elif with_landmarks == True:
-            rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
-            landmarks = dlib_predictor(image, rect)
-            for n in range(0,68):
-                x=landmarks.part(n).x
-                y=landmarks.part(n).y
-                cv2.circle(image, (x, y), 4, (0, 0, 255), -1)
-            out = image
+        elif extract_face_option == 4: # aam
+            aam = load_balanced_frontal_face_fitter()
+            bb = bounding_box((x1, y1), (x1+width, y1+height))
+            img = menpo_image(image, True)
+            result = aam.fit_from_bb(img, bb)
+            print(result)
+            print(result.final_shape)
+            print(result.image)
 
-            if original_images == False:
-                face_boundary = image[y1:y2, x1:x2]
-                face_image = Image.fromarray(face_boundary)
-                face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
-                out = asarray(face_image)
-            
-            return out
-        
-        else:
-            out = image
-            
+        else:   # no option
+            out = image     
             if original_images == False:
                 face_boundary = image[y1:y2, x1:x2]
                 face_image = Image.fromarray(face_boundary)
@@ -151,28 +306,22 @@ def get_labels_from_file(path_to_file, folder):
     return filenames, labels
 
 
-def constructing_data_list_eval(root_data_dir, with_LSTM):
+def constructing_data_list_eval(root_data_dir):
     filenames = []
     labels = []
-    filenames_list = []
-    labels_list = []
     
     for train_dir in os.listdir(root_data_dir):
         for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
             for file in files:
                 if file[-5:] == '.json':
                     f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
-                    if with_LSTM == True:
-                        filenames.append(f)
-                        labels.append(l)
-                    else:
-                        filenames.extend(f)
-                        labels.extend(l)
+                    filenames.extend(f)
+                    labels.extend(l)
         
     return np.array(filenames), np.array(labels)
 
 
-def constructing_data_list(root_data_dir, fold_size, with_LSTM):
+def constructing_data_list(root_data_dir, fold_size):
     filenames = []
     labels = []
     filenames_list = []
@@ -184,12 +333,9 @@ def constructing_data_list(root_data_dir, fold_size, with_LSTM):
             for file in files:
                 if file[-5:] == '.json':
                     f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
-                    if with_LSTM == True:
-                        filenames.append(f)
-                        labels.append(l)
-                    else:
-                        filenames.extend(f)
-                        labels.extend(l)
+                    filenames.extend(f)
+                    labels.extend(l)
+
         i = i + 1
         print(i)
         if i == fold_size:
@@ -203,16 +349,62 @@ def constructing_data_list(root_data_dir, fold_size, with_LSTM):
     return np.array(filenames_list), np.array(labels_list)
 
 
-def preloading_data(path_to_data, filenames, is_original_images, with_landmarks, with_heatmap):
+def preloading_data(path_to_data, filenames, is_original_images, extract_face_option, discard_undetected_faces):
     list_faces = []
     for file_name in filenames:
         img = cv2.imread(os.path.join(path_to_data, str(file_name)))
         if img is not None:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            face = extract_face_from_image(img, is_original_images, with_landmarks, with_heatmap)
-            list_faces.append(face)
+
+            face = extract_face_from_image(img, is_original_images, extract_face_option, discard_undetected_faces)
+
+            if face != []:
+                face = np.array(face)
+                face = face.astype('float32')
+                face = expand_dims(face, axis=0)
+                face_norm = preprocess_input(face, version=2)
+
+                list_faces.append(face_norm)
 
     return np.array(list_faces)
+
+def preloading_data_w_labels(path_to_data, filenames, labels, is_original_images, extract_face_option, discard_undetected_faces):
+    list_faces = []
+    list_masks = []
+    list_labels = []
+
+    for i in range(0, len(filenames)):
+        print(i)
+        img = cv2.imread(os.path.join(path_to_data, str(filenames[i])))
+        if img is not None:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            if extract_face_option == 5: # with mask
+                face, mask = extract_mask_from_image(img, is_original_images, extract_face_option, discard_undetected_faces)
+                face = np.array(face)
+                # face = face.astype('float32')
+                # face = expand_dims(face, axis=0)
+                # face = preprocess_input(face, version=2)
+            else:
+                face = extract_face_from_image(img, is_original_images, extract_face_option, discard_undetected_faces)
+                face = np.array(face)
+                face = face.astype('float32')
+                face = expand_dims(face, axis=0)
+                face = preprocess_input(face, version=2)
+
+            if face != []:
+                list_faces.append(face)
+                list_labels.append(labels[i-1])
+                if extract_face_option == 5: # with mask
+                    list_masks.append(mask)
+
+        else:
+            print("Image not found!!")
+    
+    if extract_face_option == 5:
+        return np.array(list_faces), np.array(list_labels), np.array(list_masks)
+    else:
+        return np.array(list_faces), np.array(list_labels)
 
 
 def one_hot_encoding(input_array):
@@ -243,6 +435,11 @@ def one_hot_undo(one_hot_encoded):
 def rmse(y_true, y_pred):
     return K.sqrt(K.mean(K.square(y_pred - y_true))) 
 
+# import tensorflow_probability as tfp
+
+# def corr(y_true, y_pred):
+#     x = tfp.stats.correlation(y_true, y_pred)
+#     return x
 
 def corr(y_true, y_pred):
     x = y_true
@@ -255,27 +452,16 @@ def corr(y_true, y_pred):
     y_square_sum = K.sum(ym * ym)
     r_den = K.sqrt(x_square_sum * y_square_sum)
     r = tf.math.divide_no_nan(r_num, r_den, name="division")
-    #r = r_num / r_den
     return K.mean(r)
-
 
 def corr_loss(y_true, y_pred):
     inp = corr(y_true, y_pred)
     out = inp * (-1)
     return out
 
-# def corr_loss(y_true, y_pred):
-#     x = y_true
-#     y = y_pred
-#     mx = K.mean(x)
-#     my = K.mean(y)
-#     xm, ym = x-mx, y-my
-#     r_num = K.sum(tf.multiply(xm,ym))
-#     r_den = K.sqrt(tf.multiply(K.sum(K.square(xm)), K.sum(K.square(ym))))
-#     r = tf.math.divide_no_nan(r_num, r_den, name="division")
-#     #r = r_num / r_den
-#     r = K.maximum(K.minimum(r, 1.0), -1.0)
-#     return 1 - K.square(r)
+def total_loss(y_true, y_pred):
+    loss = corr_loss(y_true, y_pred) + rmse(y_true, y_pred)
+    return loss
 
 
 class CustomFineTuningCallback(keras.callbacks.Callback):
@@ -305,244 +491,258 @@ def multi_out(gen):
     for x, y in gen:
         yield x, [y[:,0], y[:,1]]
 
+def construct_filenames(path_to_data, fold_size):
+    filenames, labels = constructing_data_list(path_to_data, fold_size)
 
-def construct_data(path_to_data, path_to_evaluation, regression, original_images, with_landmarks, with_heatmap, shuffle_fold, fold_size, fold_array, with_LSTM):
-    if with_LSTM == True:
-        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
+    fn_test = filenames[0]
+    labels_test = labels[0]
 
-        fold_input = []
-        fold_target = []
+    fn_val = filenames[1]
+    labels_val = labels[1]
 
-        for i in fold_array:
-            fold_i = []
-            fold_t = []
-            for l in labels[i]:
-                if regression == True:
-                    target = np.true_divide(l, 10)
-                fold_t.append(target)
-            
-            for f in filenames[i]:
-                preload_input = preloading_data(path_to_data, f, original_images, with_landmarks, with_heatmap)
-                fold_i.append(preload_input)
-
-            fold_target.append(fold_t)
-            fold_input.append(fold_i)
-
-        fold_input = np.array(fold_input)
-        fold_target = np.array(fold_target)
-        
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
-        
-        test_input = []
-        for subject in test_files:
-            out = preloading_data(path_to_evaluation, subject, original_images, with_landmarks, with_heatmap)
-            test_input.append(out)
-
-        if with_heatmap == True:
-            np.save('numpy/X_fold_input_heatmap_lstm.npy', fold_input)
-            np.save('numpy/X_test_input_heatmap_lstm.npy', test_input)
-        if with_landmarks == True:
-            np.save('numpy/X_fold_input_landmarks_img_lstm.npy', fold_input)
-            np.save('numpy/X_test_input_landmarks_img_lstm.npy', test_input)
-        else:
-            np.save('numpy/X_fold_input_lstm.npy', fold_input)
-            np.save('numpy/X_test_input_lstm.npy', test_input)
-
-        if regression == True:
-            test_target = []
-            for l in test_labels:
-                out = np.true_divide(l, 10)
-                test_target.append(out)
-            test_target = np.array(test_target)
-            np.save('numpy/Y_fold_target_regr_lstm.npy', fold_target)
-            np.save('numpy/Y_test_target_regr_lstm.npy', test_target)
-        else:
-            test_target_V = one_hot_encoding(test_labels[:,0])
-            test_target_A = one_hot_encoding(test_labels[:,1])
-            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
-            for i in range(0, len(test_target_V)):
-                test_target[i] = [test_target_V[i], test_target_A[i]]
-            np.save('numpy/Y_fold_target_lstm.npy', fold_target)
-            np.save('numpy/Y_test_target_lstm.npy', test_target)
-            
-    elif original_images == True and shuffle_fold == True:
-        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
-
-        fold_input = []
-        fold_target = []
-        for i in fold_array:
-            f, l = shuffle(filenames[i], labels[i], random_state=0)
-
-            if regression == True:
-                target = np.true_divide(l, 10)
-            else:
-                target_V = one_hot_encoding(l[:,0])
-                target_A = one_hot_encoding(l[:,1])
-                target = np.zeros((len(target_V), 2, len(target_V[0])))
-                for i in range(0, len(target_V)):
-                    target[i] = [target_V[i], target_A[i]]
-
-            fold_target.append(target)
-
-            preload_input = preloading_data(path_to_data, f, original_images, with_landmarks, with_heatmap)
-            fold_input.append(preload_input)
-
-        fold_target = np.array(fold_target)
-        fold_input = np.array(fold_input)
-
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
-        test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)    
-
-        if with_landmarks == True:
-            if with_heatmap == True:
-                np.save('numpy/X_fold_input_shuffled_original_heatmap.npy', fold_input)
-                np.save('numpy/X_test_input_shuffled_original_heatmap.npy', test_input)
-            else:
-                np.save('numpy/X_fold_input_shuffled_original_landmarks.npy', fold_input)
-                np.save('numpy/X_test_input_shuffled_original_landmarks.npy', test_input)
-        else:
-            np.save('numpy/X_fold_input_shuffled_original.npy', fold_input)
-            np.save('numpy/X_test_input_shuffled_original.npy', test_input)
-        if regression == True:
-            test_target = np.true_divide(test_labels, 10)
-            np.save('numpy/Y_fold_target_shuffled_original_regr.npy', fold_target)
-            np.save('numpy/Y_test_target_shuffled_original_regr.npy', test_target)
-        else:
-            test_target_V = one_hot_encoding(test_labels[:,0])
-            test_target_A = one_hot_encoding(test_labels[:,1])
-            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
-            for i in range(0, len(test_target_V)):
-                test_target[i] = [test_target_V[i], test_target_A[i]]
-            np.save('numpy/Y_fold_target_shuffled_original.npy', fold_target)
-            np.save('numpy/Y_test_target_shuffled_original.npy', test_target)
+    fn_train = np.concatenate((filenames[2], filenames[3], filenames[4]), axis=0)
+    labels_train = np.concatenate((labels[2], labels[3], labels[4]), axis=0)
     
-        
-    elif original_images == False and shuffle_fold == True:
-        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
+    print(fn_train.shape)
+    print(labels_train.shape)
+
+    
+    train = np.column_stack((fn_train, labels_train))
+    print(train.shape)
+    df1 = pd.DataFrame(data=train, columns=["filename", "valence", "arousal"])
+
+    val = np.column_stack((fn_val, labels_val))
+    df2 = pd.DataFrame(data=val, columns=["filename", "valence", "arousal"])
+
+    test = np.column_stack((fn_test, labels_test))
+    df3 = pd.DataFrame(data=test, columns=["filename", "valence", "arousal"])
+
+    return df1, df2, df3
+
+def normalize_data(arr):
+    # x_temp = x_temp[..., ::-1]
+
+    arr_shape = arr.shape
+    print(arr_shape)
+    arr = arr.reshape(-1, 3)
+
+    scaler = MinMaxScaler()  # default range [0,1]
+    scaler.fit(arr)
+    arr = scaler.transform(arr)
+    arr = arr.reshape(arr_shape)
+    # scaler.fit(x_temp[..., 0])
+    # x_temp[..., 0] = scaler.transform(x_temp[..., 0])
+    # scaler.fit(x_temp[..., 1])
+    # x_temp[..., 1] = scaler.transform(x_temp[..., 1])
+    # scaler.fit(x_temp[..., 2])
+    # x_temp[..., 2] = scaler.transform(x_temp[..., 2])
+
+    return arr
+
+def construct_data(path_to_data, original_images, extract_face_option, fold_size, fold_array, discard_undetected_faces):
+    if original_images == True:
+        filenames, labels = constructing_data_list(path_to_data, fold_size)
         
         fold_input = []
         fold_target = []
         for i in fold_array:
-            f, l = shuffle(filenames[i], labels[i], random_state=0)
-            
-            if regression == True:
-                target = np.true_divide(l, 10)
-            else:
-                target_V = one_hot_encoding(l[:,0])
-                target_A = one_hot_encoding(l[:,1])
-                target = np.zeros((len(target_V), 2, len(target_V[0])))
-                for i in range(0, len(target_V)):
-                    target[i] = [target_V[i], target_A[i]]
-            
-            fold_target.append(target)
-            preload_input = preloading_data(path_to_data, f, original_images, with_landmarks, with_heatmap)
+            preload_input, preload_target = preloading_data_w_labels(path_to_data, filenames[i], labels[i], original_images, extract_face_option, discard_undetected_faces)
             fold_input.append(preload_input)
+            
+            preload_target = np.true_divide(preload_target, 10)
+            fold_target.append(preload_target)         
+
+        fold_input = np.array(fold_input)
+        fold_target = np.array(fold_target)  
+
+        if extract_face_option == 1: # landmarks
+            np.save('numpy/X_fold_input_original_landmarks.npy', fold_input)
+        elif extract_face_option == 2: # soft attention
+            np.save('numpy/X_fold_input_original_softAttention.npy', fold_input)
+        elif extract_face_option == 3: # heatmap
+            np.save('numpy/X_fold_input_original_heatmap.npy', fold_input)
+        elif extract_face_option == 0:
+            np.save('numpy/X_fold_input_original.npy', fold_input)
+
+        np.save('numpy/Y_fold_target_original_regr.npy', fold_target)
+        
+        
+    elif original_images == False:
+        filenames, labels = constructing_data_list(path_to_data, fold_size)
+
+        fold_input = []
+        fold_target = []
+        fold_input_mask = []
+        for i in fold_array:
+            if extract_face_option == 5:
+                preload_input, preload_target, preload_mask = preloading_data_w_labels(path_to_data, filenames[i], labels[i], original_images, extract_face_option, discard_undetected_faces)               
+                fold_input.append(preload_input)
+                fold_input_mask.append(preload_mask)
+            else:
+                preload_input, preload_target = preloading_data_w_labels(path_to_data, filenames[i], labels[i], original_images, extract_face_option, discard_undetected_faces)
+                fold_input.append(preload_input)
+            
+            preload_target = np.true_divide(preload_target, 10)
+            fold_target.append(preload_target)         
 
         fold_input = np.array(fold_input)
         fold_target = np.array(fold_target)        
+        fold_input_mask = np.array(fold_input_mask)
 
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
-        test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
-        
-        if with_heatmap == True:
-            np.save('numpy/X_fold_input_shuffled_heatmap.npy', fold_input)
-            np.save('numpy/X_test_input_shuffled_heatmap.npy', test_input)
-        elif with_landmarks == True:
-            np.save('numpy/X_fold_input_shuffled_landmarks.npy', fold_input)
-            np.save('numpy/X_test_input_shuffled_landmarks.npy', test_input)
-        else:
-            np.save('numpy/X_fold_input_shuffled.npy', fold_input)
-            np.save('numpy/X_test_input_shuffled.npy', test_input)
-
-        if regression == True:
-            test_target = np.true_divide(test_labels, 10)
-            np.save('numpy/Y_test_target_shuffled_regr.npy', test_target)
-            np.save('numpy/Y_fold_target_shuffled_regr.npy', fold_target)
-        else:
-            test_target_V = one_hot_encoding(test_labels[:,0])
-            test_target_A = one_hot_encoding(test_labels[:,1])
-            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
-            for i in range(0, len(test_target_V)):
-                test_target[i] = [test_target_V[i], test_target_A[i]]
-            np.save('numpy/Y_test_target_shuffled.npy', test_target)
-            np.save('numpy/Y_fold_target_shuffled.npy', fold_target)
-
-
-    elif original_images == True and shuffle_fold == False:
-        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
-
-        fold_input = []
-        fold_input_landmarks = []
-        fold_target = []
-        for i in fold_array:
-            target = np.true_divide(labels[i], 10)
-            fold_target.append(target)
-
-            preload_input, preload_landmarks = preloading_data(path_to_data, filenames[i], original_images, with_landmarks, with_heatmap)
-            fold_input.append(preload_input)
-            fold_input_landmarks.append(preload_landmarks)
-
-        fold_target = np.array(fold_target)
-        fold_input = np.array(fold_input)
-        fold_input_landmarks = np.array(fold_input_landmarks)
-        np.save('numpy/Y_fold_target_original.npy', fold_target)
-        np.save('numpy/X_fold_input_original.npy', fold_input)
-        np.save('numpy/X_fold_input_landmarks.npy', fold_input_landmarks)
-            
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
-        test_input, test_input_landmarks = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
-        test_target = np.true_divide(test_labels, 10)
-        np.save('numpy/Y_test_target_original.npy', test_target)
-        np.save('numpy/X_test_input_original.npy', test_input)
-        np.save('numpy/X_test_input_landmarks.npy', test_input_landmarks)
-
-    elif original_images == False and shuffle_fold == False:
-        filenames, labels = constructing_data_list(path_to_data, fold_size, with_LSTM)
-
-        fold_input = []
-        fold_target = []
-        for i in fold_array:
-            l = labels[i]
-            if regression == True:
-                target = np.true_divide(l, 10)
-            else:
-                target_V = one_hot_encoding(l[:,0])
-                target_A = one_hot_encoding(l[:,1])
-                target = np.zeros((len(target_V), 2, len(target_V[0])))
-                for i in range(0, len(target_V)):
-                    target[i] = [target_V[i], target_A[i]]
-
-            fold_target.append(target)
-
-            preload_input = preloading_data(path_to_data, filenames[i], original_images, with_landmarks, with_heatmap)
-            fold_input.append(preload_input)
-
-        fold_input = np.array(fold_input)
-        fold_target = np.array(fold_target)
-        
-        test_files, test_labels = constructing_data_list_eval(path_to_evaluation, with_LSTM)
-        test_input = preloading_data(path_to_evaluation, test_files, original_images, with_landmarks, with_heatmap)
-        
-        if with_heatmap == True:
+        if extract_face_option == 1 and discard_undetected_faces == False: # landmarks
+            np.save('numpy/X_fold_input_landmarks.npy', fold_input)
+        elif extract_face_option == 2 and discard_undetected_faces == False: # soft attention
+            np.save('numpy/X_fold_input_softAttention.npy', fold_input)
+        elif extract_face_option == 3 and discard_undetected_faces == False: # heatmap
             np.save('numpy/X_fold_input_heatmap.npy', fold_input)
-            np.save('numpy/X_test_input_heatmap.npy', test_input)
-        if with_landmarks == True:
-            np.save('numpy/X_fold_input_landmarks_img.npy', fold_input)
-            np.save('numpy/X_test_input_landmarks_img.npy', test_input)
-        else:
+        elif extract_face_option == 3 and discard_undetected_faces == True: # heatmap
+            np.save('numpy/X_fold_input_heatmap_discarded.npy', fold_input)
+        elif extract_face_option == 5: # mask
+            np.save('numpy/X_fold_input_mask.npy', fold_input_mask)
+            np.save('numpy/X_fold_input_m.npy', fold_input)
+            np.save('numpy/Y_fold_target_m.npy', fold_target)
+        elif extract_face_option == 0: # no setting
             np.save('numpy/X_fold_input.npy', fold_input)
-            np.save('numpy/X_test_input.npy', test_input)
 
-        if regression == True:
-            test_target = np.true_divide(test_labels, 10)
+        if discard_undetected_faces == False:
             np.save('numpy/Y_fold_target_regr.npy', fold_target)
-            np.save('numpy/Y_test_target_regr.npy', test_target)
+        elif discard_undetected_faces == True and extract_face_option != 5:
+            np.save('numpy/Y_fold_target_regr_discarded.npy', fold_target)
+
+
+
+################################################################################################
+
+from keras.callbacks import *
+from keras import backend as K
+import numpy as np
+
+class CyclicLR(Callback):
+    """This callback implements a cyclical learning rate policy (CLR).
+    The method cycles the learning rate between two boundaries with
+    some constant frequency, as detailed in this paper (https://arxiv.org/abs/1506.01186).
+    The amplitude of the cycle can be scaled on a per-iteration or 
+    per-cycle basis.
+    This class has three built-in policies, as put forth in the paper.
+    "triangular":
+        A basic triangular cycle w/ no amplitude scaling.
+    "triangular2":
+        A basic triangular cycle that scales initial amplitude by half each cycle.
+    "exp_range":
+        A cycle that scales initial amplitude by gamma**(cycle iterations) at each 
+        cycle iteration.
+    For more detail, please see paper.
+    
+    # Example
+        ```python
+            clr = CyclicLR(base_lr=0.001, max_lr=0.006,
+                                step_size=2000., mode='triangular')
+            model.fit(X_train, Y_train, callbacks=[clr])
+        ```
+    
+    Class also supports custom scaling functions:
+        ```python
+            clr_fn = lambda x: 0.5*(1+np.sin(x*np.pi/2.))
+            clr = CyclicLR(base_lr=0.001, max_lr=0.006,
+                                step_size=2000., scale_fn=clr_fn,
+                                scale_mode='cycle')
+            model.fit(X_train, Y_train, callbacks=[clr])
+        ```    
+    # Arguments
+        base_lr: initial learning rate which is the
+            lower boundary in the cycle.
+        max_lr: upper boundary in the cycle. Functionally,
+            it defines the cycle amplitude (max_lr - base_lr).
+            The lr at any cycle is the sum of base_lr
+            and some scaling of the amplitude; therefore 
+            max_lr may not actually be reached depending on
+            scaling function.
+        step_size: number of training iterations per
+            half cycle. Authors suggest setting step_size
+            2-8 x training iterations in epoch.
+        mode: one of {triangular, triangular2, exp_range}.
+            Default 'triangular'.
+            Values correspond to policies detailed above.
+            If scale_fn is not None, this argument is ignored.
+        gamma: constant in 'exp_range' scaling function:
+            gamma**(cycle iterations)
+        scale_fn: Custom scaling policy defined by a single
+            argument lambda function, where 
+            0 <= scale_fn(x) <= 1 for all x >= 0.
+            mode paramater is ignored 
+        scale_mode: {'cycle', 'iterations'}.
+            Defines whether scale_fn is evaluated on 
+            cycle number or cycle iterations (training
+            iterations since start of cycle). Default is 'cycle'.
+    """
+
+    def __init__(self, base_lr=0.001, max_lr=0.006, step_size=2000., mode='triangular',
+                 gamma=1., scale_fn=None, scale_mode='cycle'):
+        super(CyclicLR, self).__init__()
+
+        self.base_lr = base_lr
+        self.max_lr = max_lr
+        self.step_size = step_size
+        self.mode = mode
+        self.gamma = gamma
+        if scale_fn == None:
+            if self.mode == 'triangular':
+                self.scale_fn = lambda x: 1.
+                self.scale_mode = 'cycle'
+            elif self.mode == 'triangular2':
+                self.scale_fn = lambda x: 1/(2.**(x-1))
+                self.scale_mode = 'cycle'
+            elif self.mode == 'exp_range':
+                self.scale_fn = lambda x: gamma**(x)
+                self.scale_mode = 'iterations'
         else:
-            test_target_V = one_hot_encoding(test_labels[:,0])
-            test_target_A = one_hot_encoding(test_labels[:,1])
-            test_target = np.zeros((len(test_target_V), 2, len(test_target_V[0])))
-            for i in range(0, len(test_target_V)):
-                test_target[i] = [test_target_V[i], test_target_A[i]]
-            np.save('numpy/Y_fold_target.npy', fold_target)
-            np.save('numpy/Y_test_target.npy', test_target)
+            self.scale_fn = scale_fn
+            self.scale_mode = scale_mode
+        self.clr_iterations = 0.
+        self.trn_iterations = 0.
+        self.history = {}
+
+        self._reset()
+
+    def _reset(self, new_base_lr=None, new_max_lr=None,
+               new_step_size=None):
+        """Resets cycle iterations.
+        Optional boundary/step size adjustment.
+        """
+        if new_base_lr != None:
+            self.base_lr = new_base_lr
+        if new_max_lr != None:
+            self.max_lr = new_max_lr
+        if new_step_size != None:
+            self.step_size = new_step_size
+        self.clr_iterations = 0.
+        
+    def clr(self):
+        cycle = np.floor(1+self.clr_iterations/(2*self.step_size))
+        x = np.abs(self.clr_iterations/self.step_size - 2*cycle + 1)
+        if self.scale_mode == 'cycle':
+            return self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(cycle)
+        else:
+            return self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(self.clr_iterations)
+        
+    def on_train_begin(self, logs={}):
+        logs = logs or {}
+
+        if self.clr_iterations == 0:
+            K.set_value(self.model.optimizer.lr, self.base_lr)
+        else:
+            K.set_value(self.model.optimizer.lr, self.clr())        
             
+    def on_batch_end(self, epoch, logs=None):
+        
+        logs = logs or {}
+        self.trn_iterations += 1
+        self.clr_iterations += 1
+
+        self.history.setdefault('lr', []).append(K.get_value(self.model.optimizer.lr))
+        self.history.setdefault('iterations', []).append(self.trn_iterations)
+
+        for k, v in logs.items():
+            self.history.setdefault(k, []).append(v)
+        
+        K.set_value(self.model.optimizer.lr, self.clr())

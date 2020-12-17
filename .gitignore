@@ -7,17 +7,23 @@ MasterThesis_Prototype_Python.iml
 
 /app/.ipynb_checkpoints
 /app/test.jpg
-/app/model_top.h5
-/app/model_best.h5
 /app/video.avi
 /app/dist
 /app/build
+/app/model_checkpoints
+/app/shape_predictor_68_face_landmarks.dat
+/app/*.csv
+
 
 /training/.ipynb_checkpoints
+/training/__pycache__
+/training/best
+/training/datagen_preview
 /training/model_checkpoints
-/training/*.txt
 /training/numpy
 /training/visualization
+
+/training/*.txt
 /training/Untitled.ipynb_checkpoints
 /training/datagen_preview
 /training/best_model.h5

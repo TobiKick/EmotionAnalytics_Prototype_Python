@@ -157,6 +157,11 @@ def identify_interest(val):
     print(negative)
     print(neutral)
 
+    if (positive-negative) > 0:
+        print((positive-negative)/positive)
+    else:
+        print((negative-positive)/negative)
+    
     if neutral > (positive + negative):
         return "-"
     elif positive/2 > negative:

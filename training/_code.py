@@ -19,6 +19,7 @@ import dlib
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import matplotlib
 import tensorflow as tf
 
 #Import Keras modules
@@ -27,6 +28,8 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.optimizers import Adam, SGD 
 import keras.backend as K
 import keras as keras
+import pandas as pd
+from numpy import asarray
 
 
 ############################# SETUP PROJECT PARAMETERS ########################################################
@@ -35,42 +38,51 @@ SAVE_PROGRESS_TO_MODEL = True
 
 RUN_LOCAL = False
 CONSTRUCT_DATA = False
+DATA_GEN = True
 CROSS_VALIDATION = False
 
 SHUFFLE_FOLD = True
 ORIGINAL_IMAGES = False
-COMBINED_IMAGES = False
 LAYER_REGULARIZATION = False
+DATA_AUGMENTATION = False
 
-DATA_AUGMENTATION = True
-WITH_LANDMARKS = False
-WITH_HEATMAP = True
-LANDMARKS_ONLY = False
+#########################
+######## OPTIONS ########
+# NOTHING = 0
+# WITH_LANDMARKS = 1
+# WITH_SOFTATTENTION = 2
+# WITH_HEATMAP = 3
+# WITH_AAM = 4
+# WITH_MASK = 5
+#########################
+EXTRACT_FACE_OPTION = 5
+DISCARD_UNDETECTED_FACES = True  # if with mask == True then also discard undetected faces
 
-LSTM_LAYER = False
-REGRESSION = True
+#########################
+######## OPTIONS ########
+# DEFAULT = 0
+# WITH LSTM = 1
+# WITH MASK = 2
+# WITH MASK -> 4 CHANNEL VGGFACE = 3
+# WITH MASK -> 4 CHANNEL RESNET 50 = 4
+#########################
+MODEL_OPTION = 4
 
 FOLD_ARRAY = [0, 1, 2, 3, 4]
-
-if CROSS_VALIDATION == True:
-    FOLD_SIZE = 120 # number of folders/subjects in one fold
-else:
-    FOLD_SIZE = 120
-
-BATCH_SIZE = 16
-
-PATH_TO_DATA = 'AFEW-VA'
-PATH_TO_EVALUATION = 'AFEW-VA_TEST'
-
+FOLD_SIZE = 120
+BATCH_SIZE = 32
 EPOCHS = 1000
+
+PATH_TO_DATA = 'AFEW-VA_ALL'
 
 if RUN_LOCAL == True:
     PATH_TO_DATA = r"C:\Users\Tobias\Desktop\Master-Thesis\Data\AFEW-VA"
+    PATH_TO_EVALUATION = r"C:\Users\Tobias\Desktop\Master-Thesis\Data\AFEW-VA_TEST"
     import os
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     EPOCHS = 2
-    FOLD_ARRAY = [0, 1]
+    FOLD_ARRAY = [0, 1, 2]   # at least 3 folds necessary to perform split into Train, Val and Test
     FOLD_SIZE = 1  # number of folders/subjects in one fold
 
 
@@ -80,93 +92,115 @@ if RUN_LOCAL == True:
 
 from _functions import *
 from _models import *
-   
-    
+
+graph_1 = tf.Graph()
+graph_2 = tf.Graph()
+sess_1 = tf.Session(graph= graph_1)
+sess_2 = tf.Session(graph= graph_2)
+
+
 
 def run_model():
     if CONSTRUCT_DATA == True:
-        construct_data(PATH_TO_DATA, PATH_TO_EVALUATION, REGRESSION, ORIGINAL_IMAGES, WITH_LANDMARKS, WITH_HEATMAP, SHUFFLE_FOLD, FOLD_SIZE, FOLD_ARRAY, LSTM_LAYER)
+        construct_data(PATH_TO_DATA, ORIGINAL_IMAGES, EXTRACT_FACE_OPTION, FOLD_SIZE, FOLD_ARRAY, DISCARD_UNDETECTED_FACES)
+    
+    elif DATA_GEN == True:
+        # with graph_1.as_default():
+        #     with sess_1.as_default():
+        #         K.set_session(sess_1)
+                # sess_2.run(tf.global_variables_initializer())
+        x = True
+        if x == True:
+            pd_train, pd_val, pd_test = construct_filenames(PATH_TO_DATA, FOLD_SIZE)
+            print(pd_train.head())
+
+            fold_input = np.load('numpy/X_fold_input_m.npy', allow_pickle=True)
+            fold_input_mask = np.load('numpy/X_fold_input_mask.npy', allow_pickle=True) 
+
+            m0 = fold_input_mask[0]
+            mask0 = np.reshape(m0, (m0.shape[0], m0.shape[1], m0.shape[2], 1))
+            fold_test = np.concatenate((fold_input[0], mask0), axis=3)
+            i = 0
+            for img in fold_test:
+                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_test[i]), img)
+                i = i + 1
+
+            m1 = fold_input_mask[1]
+            mask1 = np.reshape(m1, (m1.shape[0], m1.shape[1], m1.shape[2], 1))
+            fold_val = np.concatenate((fold_input[1], mask1), axis=3)
+            i = 0
+            for img in fold_val:
+                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_val[i]), img)
+                i = i + 1
+
+            t2 = np.concatenate((np.concatenate((fold_input[2], fold_input[3]), axis=0), fold_input[4]), axis=0)
+            m2 = np.concatenate((np.concatenate((fold_input_mask[2], fold_input_mask[3]), axis=0), fold_input_mask[4]), axis=0)
+            mask2 = np.reshape(m2, (m2.shape[0], m2.shape[1], m2.shape[2], 1))
+            fold_train = np.concatenate((t2, mask2), axis=3)
+            i = 0
+            for img in fold_train:
+                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_train[i]), img)
+                i = i + 1
+
+        else:
+            pd_train, pd_val, pd_test = construct_filenames(PATH_TO_DATA, FOLD_SIZE)
+            print(pd_train.head())
+        
+            datagen1 = ImageDataGenerator(data_format='channels_last') #preprocessing_function=myFunc
+            gen1 = datagen1.flow_from_dataframe(pd_train, directory="./AFEW-VA_ALL_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb')
+            datagen2 = ImageDataGenerator()
+            gen2 = datagen2.flow_from_dataframe(pd_val, directory="./AFEW-VA_ALL_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb')
+
+            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) # waiting for X consecutive epochs that don't reduce the val_loss
+            cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+            cb_clr = CyclicLR(base_lr=0.00001, max_lr=0.001, step_size=2000, mode='triangular2')   # 4*(len(inputs_train)/BATCH_SIZE)
+
+            model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
+            model.summary()
+            
+            opt = Adam(lr = 0.001)
+            model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+
+            scores = model.fit_generator(gen1, steps_per_epoch=BATCH_SIZE, validation_data=(gen2), validation_steps=(BATCH_SIZE), verbose=1, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop, cb_learningRate])
+            model.save_weights("model_checkpoints/model_top.h5")
+
     else:
-        # fold_input_landmarks = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
-        # test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
-        if COMBINED_IMAGES == True:
-            fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
-            fold_target = np.load('numpy/Y_fold_target.npy', allow_pickle=True)
-            fold_input_2 = np.load('numpy/X_fold_input_original.npy', allow_pickle=True)
-            fold_target_2 = np.load('numpy/Y_fold_target_original.npy', allow_pickle=True)
-
-            test_data_input_2 = np.load('numpy/X_test_input_original.npy', allow_pickle=True)
-            test_data_input = np.load('numpy/X_test_input.npy', allow_pickle=True)
-            test_data_target = np.load('numpy/Y_test_target.npy', allow_pickle=True)
-        elif LSTM_LAYER == True:
-            if WITH_HEATMAP == True:
-                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_heatmap.npy', allow_pickle=True)
-            if REGRESSION == True:
-                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_regr.npy', allow_pickle=True)
-        elif ORIGINAL_IMAGES == True and SHUFFLE_FOLD == True:
-            if WITH_HEATMAP == True:
-                fold_input = np.load('numpy/X_fold_input_shuffled_original_heatmap.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled_original_heatmap.npy', allow_pickle=True)
-            elif WITH_LANDMARKS == True:
-                fold_input = np.load('numpy/X_fold_input_shuffled_original_landmarks.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled_original_landmarks.npy', allow_pickle=True)
-            else:
-                fold_input = np.load('numpy/X_fold_input_shuffled_original.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled_original.npy', allow_pickle=True)
+        if ORIGINAL_IMAGES == True:
+            if EXTRACT_FACE_OPTION == 0:
+                fold_input = np.load('numpy/X_fold_input_original.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 1:
+                fold_input = np.load('numpy/X_fold_input_original_landmarks.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 2:
+                fold_input = np.load('numpy/X_fold_input_original_softAttention.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 3: # with heatmap
+                fold_input = np.load('numpy/X_fold_input_original_heatmap.npy', allow_pickle=True)
             
-            if REGRESSION == True:
-                fold_target = np.load('numpy/Y_fold_target_shuffled_original_regr.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_shuffled_original_regr.npy', allow_pickle=True)#
-            else: # not updated yet !! first construct data before loading this !!
-                fold_target = np.load('numpy/Y_fold_target_shuffled_original.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_shuffled_original.npy', allow_pickle=True)
+            fold_target = np.load('numpy/Y_fold_target_original_regr.npy', allow_pickle=True)
 
-
-        elif ORIGINAL_IMAGES == False and SHUFFLE_FOLD == True:
-            
-            if WITH_HEATMAP == True:
-                fold_input = np.load('numpy/X_fold_input_shuffled_heatmap_ALL.npy', allow_pickle=True)
-                # test_data_input = np.load('numpy/X_test_input_shuffled_heatmap.npy', allow_pickle=True)
-            elif WITH_LANDMARKS == True:
-                fold_input = np.load('numpy/X_fold_input_shuffled_landmarks.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled_landmarks.npy', allow_pickle=True)
-            else:
-                fold_input = np.load('numpy/X_fold_input_shuffled.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_shuffled.npy', allow_pickle=True)
-            
-            if REGRESSION == True:
-                fold_target = np.load('numpy/Y_fold_target_shuffled_regr_ALL.npy', allow_pickle=True)
-                #test_data_target = np.load('numpy/Y_test_target_shuffled_regr.npy', allow_pickle=True)
-            else:
-                fold_target = np.load('numpy/Y_fold_target_shuffled.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_shuffled.npy', allow_pickle=True)
-
-        elif ORIGINAL_IMAGES == True and SHUFFLE_FOLD == False:
-            fold_input = np.load('numpy/X_fold_input_original.npy', allow_pickle=True)
-            fold_target = np.load('numpy/Y_fold_target_original.npy', allow_pickle=True)
-            test_data_input = np.load('numpy/X_test_input_original.npy', allow_pickle=True)
-            test_data_target = np.load('numpy/Y_test_target_original.npy', allow_pickle=True)      
-            
-        elif ORIGINAL_IMAGES == False and SHUFFLE_FOLD == False:
-            if WITH_HEATMAP == True:
-                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_heatmap.npy', allow_pickle=True)
-            elif WITH_LANDMARKS == True:
-                fold_input = np.load('numpy/X_fold_input_landmarks_img.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input_landmarks_img.npy', allow_pickle=True)
-            else:
+        elif ORIGINAL_IMAGES == False:
+            if EXTRACT_FACE_OPTION == 0:
                 fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
-                test_data_input = np.load('numpy/X_test_input.npy', allow_pickle=True)
-            
-            if REGRESSION == True:
-                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target_regr.npy', allow_pickle=True)
-            else:
-                fold_target = np.load('numpy/Y_fold_target.npy', allow_pickle=True)
-                test_data_target = np.load('numpy/Y_test_target.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 1:
+                fold_input = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 2:
+                fold_input = np.load('numpy/X_fold_input_softAttention.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 3 and DISCARD_UNDETECTED_FACES == False:
+                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 3 and DISCARD_UNDETECTED_FACES == True:
+                fold_input = np.load('numpy/X_fold_input_heatmap_discarded.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 5: # with mask
+                fold_input = np.load('numpy/X_fold_input_m.npy', allow_pickle=True)
+                fold_input_mask = np.load('numpy/X_fold_input_mask.npy', allow_pickle=True)
 
+            if EXTRACT_FACE_OPTION == 2 and DISCARD_UNDETECTED_FACES == False:
+                fold_target = np.load('numpy/Y_fold_target_regr_softAttention.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 5:
+                fold_target = np.load('numpy/Y_fold_target_m.npy', allow_pickle=True)
+            elif DISCARD_UNDETECTED_FACES == True:
+                fold_target = np.load('numpy/Y_fold_target_regr_discarded.npy', allow_pickle=True)
+            else:
+                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
 
         # K-fold Cross Validation model evaluation
         history_accuracy_1 = []
@@ -185,33 +219,16 @@ def run_model():
 
         if CROSS_VALIDATION == True:
             for i in FOLD_ARRAY:
-                
-                cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', 
-                                                mode='min', verbose=1, save_best_only=True)
-
-                cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) 
-                
-                # waiting for X consecutive epochs that don't reduce the val_loss
-                # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.0001, verbose=1)
-                cb_learningRate =  LearningRateScheduler(scheduler)
-
-                log_dir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-                tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-
+                # cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+                # cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) 
+            
                 inputs_test = np.array(fold_input[i])
                 targets_test = np.array(fold_target[i])
                 inputs_train = []
                 targets_train = []
 
-                if i < 4:
-                    j = i + 1
-                else:
-                    j = 0
-                inputs_validation = np.array(fold_input[j])
-                targets_validation = np.array(fold_target[j])
-
                 for t in FOLD_ARRAY:
-                    if t != i and t != j:
+                    if t != i:
                         if inputs_train != []:
                             inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
                             targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
@@ -219,38 +236,35 @@ def run_model():
                             inputs_train = np.array(fold_input[t])
                             targets_train = np.array(fold_target[t])
                 
-                # x = inputs_train
-                # y = targets_train
-                # inputs_train, inputs_validation, targets_train, targets_validation = train_test_split(x, y, test_size=0.2, shuffle=False)
-
                 if SHUFFLE_FOLD == True:
                     inputs_train, targets_train = shuffle(inputs_train, targets_train, random_state=0)
-                    inputs_validation, targets_validation = shuffle(inputs_validation, targets_validation, random_state=0)
-
+                    
                 print(inputs_train.shape)
-                print(inputs_validation.shape)
                 print(inputs_test.shape)
 
-                datagen = ImageDataGenerator(
-                    rotation_range=30,
-                    width_shift_range=0.25,
-                    height_shift_range=0.25,
-                    horizontal_flip=True,
-                    brightness_range=[0.5, 1.5],
-                    zoom_range=0.3)
-          
-                datagen.fit(inputs_train)
-                gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
-                train_steps = len(gen1)
-                train = multi_out(gen1)
-
-                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+                model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
                 model.summary()
-                opt = Adam(learning_rate = 0.0001)
+                opt = Adam(lr=0.0001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
-                 
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
+
+                if DATA_AUGMENTATION == True:
+                    datagen = ImageDataGenerator(
+                        rotation_range=30,
+                        width_shift_range=0.25,
+                        height_shift_range=0.25,
+                        horizontal_flip=True,
+                        brightness_range=[0.5, 1.5],
+                        zoom_range=0.3)
+            
+                    datagen.fit(inputs_train)
+                    gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
+                    train_steps = len(gen1)
+                    train = multi_out(gen1)
+                    scores = model.fit(train, steps_per_epoch=train_steps, verbose=1, epochs=3)
+                else:
+                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], verbose=1, batch_size=BATCH_SIZE, epochs=3)
+                
+                model.save_weights("model_checkpoints/model_top.h5")
 
                 history_accuracy_1.extend(scores.history['out1_accuracy'])
                 history_corr_1.extend(scores.history['out1_corr'])
@@ -259,22 +273,33 @@ def run_model():
                 history_corr_2.extend(scores.history['out2_corr'])
                 history_rmse_2.extend(scores.history['out2_rmse'])
 
-                val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
-                val_history_corr_1.extend(scores.history['val_out1_corr'])
-                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                for j in [1, 2, 3, 4]:
+                    if j == 1:
+                        nr_epochs = 20
+                    else:
+                        nr_epochs = 5
 
-                val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
-                val_history_corr_2.extend(scores.history['val_out2_corr'])
-                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+                    model = custom_vgg_model(True, j, LAYER_REGULARIZATION, MODEL_OPTION)
+                    model.load_weights("model_checkpoints/model_top.h5")
+                    model.summary()
+                    opt = Adam(lr=0.00001)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                    
+                    if DATA_AUGMENTATION:
+                        scores = model.fit(train, steps_per_epoch=train_steps, verbose=1, epochs=15)
+                    else:
+                        scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], verbose=1, batch_size=BATCH_SIZE, epochs=nr_epochs)
 
-                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
-                model.summary()
-                opt = Adam(learning_rate = 0.00001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-    
-                model.load_weights("model_checkpoints/model_best.h5")
+                    model.save_weights("model_checkpoints/model_top.h5")
+
+                    history_accuracy_1.extend(scores.history['out1_accuracy'])
+                    history_corr_1.extend(scores.history['out1_corr'])
+                    history_rmse_1.extend(scores.history['out1_rmse'])
+                    history_accuracy_2.extend(scores.history['out2_accuracy'])
+                    history_corr_2.extend(scores.history['out2_corr'])
+                    history_rmse_2.extend(scores.history['out2_rmse'])
+
+                model.load_weights("model_checkpoints/model_top.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
                 with open('CrossValidation.csv', "a") as fp:
@@ -282,22 +307,6 @@ def run_model():
                     wr.writerow(str(i))
                     wr.writerow(result)
                     
-
-                print("Just wrote to CrossValidation file")
-                history_accuracy_1.extend(scores.history['out1_accuracy'])
-                history_corr_1.extend(scores.history['out1_corr'])
-                history_rmse_1.extend(scores.history['out1_rmse'])
-                history_accuracy_2.extend(scores.history['out2_accuracy'])
-                history_corr_2.extend(scores.history['out2_corr'])
-                history_rmse_2.extend(scores.history['out2_rmse'])
-
-                val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
-                val_history_corr_1.extend(scores.history['val_out1_corr'])
-                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
-
-                val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
-                val_history_corr_2.extend(scores.history['val_out2_corr'])
-                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
             
             if SAVE_PROGRESS_TO_MODEL:
                 model.save_weights("model_checkpoints/model_top.h5")
@@ -314,88 +323,101 @@ def run_model():
             my_dict['out2_accuracy'] = history_accuracy_2
             my_dict['out2_corr'] = history_corr_2
             my_dict['out2_rmse'] = history_rmse_2
-
-            my_dict['val_out1_accuracy'] = val_history_accuracy_1
-            my_dict['val_out1_corr'] = val_history_corr_1
-            my_dict['val_out1_rmse'] = val_history_rmse_1
-            my_dict['val_out2_accuracy'] = val_history_accuracy_2
-            my_dict['val_out2_corr'] = val_history_corr_2
-            my_dict['val_out2_rmse'] = val_history_rmse_2
         
         else:
-            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_weights_only=True, save_best_only=True)
-            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) # waiting for X consecutive epochs that don't reduce the val_loss
-            # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_lr=0.0001, verbose=1)
-            cb_learningRate =  LearningRateScheduler(scheduler)
+            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) # waiting for X consecutive epochs that don't reduce the val_loss
+            cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+            cb_clr = CyclicLR(base_lr=0.00001, max_lr=0.001, step_size=2000, mode='triangular2')   # 4*(len(inputs_train)/BATCH_SIZE)
+            # cb_learningRate =  LearningRateScheduler(scheduler)
             
-            if COMBINED_IMAGES == True:
-                i = 0
-                inputs_test = fold_input[i]
-                targets_test = fold_target[i]
-                inputs_test_2 = fold_input_2[i]
-                targets_test_2 = fold_target_2[i]
+            if MODEL_OPTION == 1:
+                inputs_fold_LSTM = []
+                targets_fold_LSTM = []
+                inputs_train_LSTM = []
+                targets_train_LSTM = []
+                inputs_buffer = []
 
-                inputs_train = []
-                targets_train = []
-                inputs_train_2 = []
-                targets_train_2 = []
-
-                for t in FOLD_ARRAY:
-                    if t != i:
-                        if inputs_train != []:
-                            inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
-                            targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
-
-                            inputs_train_2 = np.concatenate((fold_input_2[t], inputs_train_2), axis=0)
-                            targets_train_2 = np.concatenate((fold_target_2[t], targets_train_2), axis=0)
-                        else:
-                            inputs_train = np.array(fold_input[t])
-                            targets_train = np.array(fold_target[t])
-                            
-                            inputs_train_2 = np.array(fold_input_2[t])
-                            targets_train_2 = np.array(fold_target_2[t])
-                inputs_train, targets_train, inputs_train_2, targets_train_2 = shuffle(inputs_train, targets_train, inputs_train_2, targets_train_2, random_state=0)
-            
-            else:
-                i = 0
-                inputs_test = fold_input[i]
-                # inputs_test_landmarks = fold_input_landmarks[i]
-                targets_test = fold_target[i]
-                
-                inputs_train = []
-                targets_train = []
-
-                if i < 4:
-                    j = i + 1
-                else:
+                for i in FOLD_ARRAY:
                     j = 0
-                inputs_validation = np.array(fold_input[j])
-                targets_validation = np.array(fold_target[j])
+                    for elem in fold_input[i]:
+                        inputs_buffer.append(elem) # add new element to fill up list
+                        if len(inputs_buffer) == 5:   # always take 5 elements
+                            inputs_fold_LSTM.append(np.array(inputs_buffer))
+                            targets_fold_LSTM.append(np.array(fold_target[i][j]))
+                            inputs_buffer.pop(0)   # pop first element from list   
+                        j = j + 1
 
-                for t in FOLD_ARRAY:
-                    if t != i and t != j:
-                        if inputs_train != []:
-                            inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
-                            targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
-                            # inputs_train_landmarks = np.concatenate((fold_input_landmarks[t], inputs_train_landmarks), axis=0)
-                        else:
-                            inputs_train = np.array(fold_input[t])
-                            targets_train = np.array(fold_target[t])
-                            # inputs_train_landmarks = np.array(fold_input_landmarks[t])
+                    inputs_train_LSTM.append(inputs_fold_LSTM)
+                    inputs_fold_LSTM = []
+                    targets_train_LSTM.append(targets_fold_LSTM)
+                    targets_fold_LSTM = []
+
+                fold_input = np.array(inputs_train_LSTM)
+                fold_target = np.array(targets_train_LSTM)
+
+            print(fold_input.shape)
+            print(fold_target.shape)
+
+            i = 0
+            j = 1
+            inputs_test = np.array(fold_input[i])
+            targets_test = np.array(fold_target[i])
+            inputs_train = []
+            targets_train = []
+
+            inputs_validation = np.array(fold_input[j])
+            targets_validation = np.array(fold_target[j])
+
+            if MODEL_OPTION >= 2:
+                inputs_train_mask = []
+                inputs_test_mask = np.array(fold_input_mask[i])
+                inputs_validation_mask = np.array(fold_input_mask[j])
+
+            for t in FOLD_ARRAY:
+                if t != i and t != j:
+                    if inputs_train != []:
+                        inputs_train = np.concatenate((fold_input[t], inputs_train), axis=0)
+                        targets_train = np.concatenate((fold_target[t], targets_train), axis=0)
+                        if MODEL_OPTION >= 2:
+                            inputs_train_mask = np.concatenate((fold_input_mask[t], inputs_train_mask), axis=0)
+                    else:
+                        inputs_train = np.array(fold_input[t])
+                        targets_train = np.array(fold_target[t])
+                        if MODEL_OPTION >= 2:
+                            inputs_train_mask = np.array(fold_input_mask[t])
+        
+            if SHUFFLE_FOLD == True and MODEL_OPTION >= 2:
+                inputs_train, inputs_train_mask, targets_train = shuffle(inputs_train, inputs_train_mask, targets_train, random_state=0)
+                inputs_validation, inputs_validation_mask, targets_validation = shuffle(inputs_validation, inputs_validation_mask, targets_validation, random_state=0)
+            elif SHUFFLE_FOLD == True:
+                inputs_train, targets_train = shuffle(inputs_train, targets_train, random_state=0)
+                inputs_validation, targets_validation = shuffle(inputs_validation, targets_validation, random_state=0)
                 
-                if SHUFFLE_FOLD == True:
-                    inputs_train, targets_train = shuffle(inputs_train, targets_train, random_state=0)
-                    inputs_validation, targets_validation = shuffle(inputs_validation, targets_validation, random_state=0)
-                    
-                # x = inputs_traing
-                # y = targets_train
-                # inputs_train, inputs_validation, targets_train, targets_validation = train_test_split(x, y, test_size=0.2, random_state=42)
-                
-                print(inputs_train.shape)
-                print(targets_train.shape)
+            inputs_train = np.array(inputs_train)
+            inputs_train = np.squeeze(inputs_train)
+            targets_train = np.array(targets_train)
+            targets_train = np.squeeze(targets_train)
+            inputs_validation = np.squeeze(inputs_validation) 
+            targets_validation = np.squeeze(targets_validation)
+            inputs_test = np.squeeze(inputs_test)
+            targets_test = np.squeeze(targets_test)
 
+            if MODEL_OPTION >= 2:
+                inputs_train_mask = np.array(inputs_train_mask)
+                inputs_train_mask = np.squeeze(inputs_train_mask)
 
-            if DATA_AUGMENTATION == True and COMBINED_IMAGES == False:
+                # for each channel !!! 
+                NORMALIZE = True
+                if NORMALIZE == True:
+                    inputs_train = normalize_data(inputs_train)
+                    inputs_validation = normalize_data(inputs_validation)
+                    inputs_test = normalize_data(inputs_test)
+
+            print(inputs_train.shape)
+            print(targets_train.shape)
+
+            if DATA_AUGMENTATION == True:
                 datagen = ImageDataGenerator(
                     rotation_range=30,
                     width_shift_range=0.25,
@@ -410,12 +432,12 @@ def run_model():
                 train_steps = len(gen1)
                 train = multi_out(gen1)
 
-                model = custom_vgg_model(False, 0, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+                model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
                 model.summary()
-                opt = Adam(learning_rate = 0.001)
+                opt = Adam(lr=0.0001)
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                 scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
+                model.save_weights("model_checkpoints/model_best.h5")
 
                 history_accuracy_1.extend(scores.history['out1_accuracy'])
                 history_corr_1.extend(scores.history['out1_corr'])
@@ -433,15 +455,13 @@ def run_model():
                 val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
                 for i in [1, 2, 3, 4]:
-                    model = custom_vgg_model(True, i, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                    model.load_weights("model_checkpoints/model_non_trainable.h5")
+                    model = custom_vgg_model(True, i, LAYER_REGULARIZATION, MODEL_OPTION)
+                    model.load_weights("model_checkpoints/model_best.h5")
                     model.summary()
-                    opt = Adam(learning_rate = (0.001 * (math.exp((-1 * i)))))
-                    #opt = Adam(learning_rate = 0.0001)
+                    opt = Adam(lr=0.00001)
                     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                      
                     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-                    model.save_weights("model_checkpoints/model_non_trainable.h5")
 
                     history_accuracy_1.extend(scores.history['out1_accuracy'])
                     history_corr_1.extend(scores.history['out1_corr'])
@@ -460,73 +480,198 @@ def run_model():
 
                 model.load_weights("model_checkpoints/model_best.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
-            elif LANDMARKS_ONLY == True:
-                model = custom_landmarks_model()
-                model.summary()
-                opt = Adam(learning_rate = 0.01)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(inputs_train_landmarks, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test_landmarks, [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-                
-                model.load_weights("model_checkpoints/model_best.h5")
-                result = model.evaluate(test_input_landmarks, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
-
-            elif COMBINED_IMAGES == True and WITH_LANDMARKS == False:
-                model = custom_vgg_model(False)
-                model.summary()
-                opt = Adam(learning_rate = 0.01)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit([inputs_train, inputs_train_2], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_test, inputs_test_2], [targets_test[:,0], targets_test[:,1]]), batch_size=BATCH_SIZE, verbose=1, epochs=3)
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
-                
-                model = custom_vgg_model(True)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
-                model.summary()
-                opt = Adam(learning_rate = 0.001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit([inputs_train, inputs_train_2], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_test, inputs_test_2], [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-                
-                model.load_weights("model_checkpoints/model_best.h5")
-                result = model.evaluate([test_data_input, test_data_input_2], [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
-
-            elif COMBINED_IMAGES == False and WITH_LANDMARKS == False:
-                model = custom_vgg_model(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                model.summary()
-                opt = Adam(learning_rate = 0.001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3, callbacks = [cb_bestModel])
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
-                
-                model = custom_vgg_model(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
-                model.summary()
-                opt = Adam(learning_rate = 0.0001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                
-                scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
-                model.load_weights("model_checkpoints/model_best.h5")
-                result = model.evaluate(test_data_input, [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
             
-            elif COMBINED_IMAGES == False and WITH_LANDMARKS == True:
-                test_input_landmarks = np.load('numpy/X_test_input_landmarks.npy', allow_pickle=True)
-                model = custom_vgg_model_w_landmarks(False, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
+            elif MODEL_OPTION == 1: # with LSTM
+                model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
                 model.summary()
-                opt = Adam(learning_rate = 0.001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit([inputs_train, inputs_train_landmarks], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_test, inputs_test_landmarks], [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3, callbacks = [cb_bestModel ,cb_earlyStop])
-                model.save_weights("model_checkpoints/model_non_trainable.h5")
-
-                model = custom_vgg_model_w_landmarks(True, COMBINED_IMAGES, LAYER_REGULARIZATION, REGRESSION, LSTM_LAYER)
-                model.load_weights("model_checkpoints/model_non_trainable.h5")
-                model.summary()
-                opt = Adam(learning_rate = 0.0001)
-                model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit([inputs_train, inputs_train_landmarks], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_test, inputs_test_landmarks], [targets_test[:,0], targets_test[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                opt = Adam(lr = 0.0001)
+                model.compile(loss = rmse, optimizer = opt, metrics = {'out' : ["accuracy", rmse, corr]})
+                scores = model.fit(inputs_train, targets_train, validation_data=(inputs_validation, targets_validation),verbose=1, batch_size=BATCH_SIZE, epochs=3)
                 
-                model.load_weights("model_checkpoints/model_best.h5")
-                result = model.evaluate([test_data_input, test_input_landmarks], [test_data_target[:,0], test_data_target[:,1]], verbose=1, batch_size=BATCH_SIZE)
+                for layer in model.layers:
+                    if hasattr(layer, 'layer') and layer.layer.name == 'vggface_resnet50':
+                        print(layer.layer.name)
+                        layer.layer.save_weights("model_checkpoints/lstm/VGGFace.h5")
+                    elif layer.name == 'flatten' or layer.name == 'dropout' or layer.name == 'dropout2':
+                        print("Not saved: " + layer.name)
+                    else:
+                        print(layer.name)
+                        weights = layer.get_weights()
+                        np.save("model_checkpoints/lstm/weights_" + str(layer.name), weights, allow_pickle=True)
+
+                history_accuracy_1.extend(scores.history['accuracy'])
+                history_corr_1.extend(scores.history['corr'])
+                history_rmse_1.extend(scores.history['rmse'])
+                val_history_accuracy_1.extend(scores.history['val_accuracy'])
+                val_history_corr_1.extend(scores.history['val_corr'])
+                val_history_rmse_1.extend(scores.history['val_rmse'])
             
+                for i in [1, 2, 3, 4]:
+                    model = custom_vgg_model(True, i, LAYER_REGULARIZATION, MODEL_OPTION)
+
+                    for layer in model.layers:
+                        if hasattr(layer, 'layer') and layer.layer.name == 'vggface_resnet50':
+                            print(layer.layer.name)
+                            layer.layer.load_weights("model_checkpoints/lstm/VGGFace.h5")
+                        elif layer.name == 'flatten' or layer.name == 'dropout' or layer.name == 'dropout2':
+                            print("Not set: " + layer.name)
+                        else:
+                            print(layer.name)
+                            weights = np.load("model_checkpoints/lstm/weights_" + str(layer.name) + ".npy", allow_pickle=True)
+                            layer.set_weights(weights)
+
+                    model.summary()
+                    opt = Adam(lr=0.00001)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out' : ["accuracy", rmse, corr]})
+                    scores = model.fit(inputs_train, targets_train, validation_data=(inputs_validation, targets_validation),verbose=1, batch_size=BATCH_SIZE, epochs=1000, callbacks = [cb_earlyStop])
+                
+                    for layer in model.layers:
+                        if hasattr(layer, 'layer') and layer.layer.name == 'vggface_resnet50':
+                            print(layer.layer.name)
+                            layer.layer.save_weights("model_checkpoints/lstm/VGGFace.h5")
+                        elif layer.name == 'flatten' or layer.name == 'dropout' or layer.name == 'dropout2':
+                            print("Not saved: " + layer.name)
+                        else:
+                            print(layer.name)
+                            weights = layer.get_weights()
+                            np.save("model_checkpoints/lstm/weights_" + str(layer.name), weights, allow_pickle=True)
+
+                    history_accuracy_1.extend(scores.history['accuracy'])
+                    history_corr_1.extend(scores.history['corr'])
+                    history_rmse_1.extend(scores.history['rmse'])
+                    val_history_accuracy_1.extend(scores.history['val_accuracy'])
+                    val_history_corr_1.extend(scores.history['val_corr'])
+                    val_history_rmse_1.extend(scores.history['val_rmse'])
+
+                for layer in model.layers:
+                    if hasattr(layer, 'layer') and layer.layer.name == 'vggface_resnet50':
+                        print(layer.layer.name)
+                        layer.layer.load_weights("model_checkpoints/lstm/VGGFace.h5")
+                    elif layer.name == 'flatten' or layer.name == 'dropout' or layer.name == 'dropout2':
+                        print("Not set: " + layer.name)
+                    else:
+                        print(layer.name)
+                        weights = np.load("model_checkpoints/lstm/weights_" + str(layer.name) + ".npy", allow_pickle=True)
+                        layer.set_weights(weights)
+
+                result = model.evaluate(inputs_test, targets_test, verbose=1, batch_size=BATCH_SIZE)
+
+            else:
+                
+                if MODEL_OPTION == 2:
+                    model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
+                    model.summary()
+                    opt = Adam(lr = 0.0001)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                
+                    scores = model.fit([inputs_train, inputs_train_mask], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_validation, inputs_validation_mask], [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3)
+                    model.save_weights("model_checkpoints/model_top.h5")
+                
+                elif MODEL_OPTION == 4: # MASK AS 4TH CHANNEL WITH VGGFACE
+
+                    a = inputs_train_mask
+                    inputs_train_mask = np.reshape(a, (a.shape[0], a.shape[1], a.shape[2], 1))
+                    inputs_train = np.concatenate((inputs_train, inputs_train_mask), axis=3)
+                    print(inputs_train.shape)
+
+                    # datagen = ImageDataGenerator(
+                    #     rotation_range=20,
+                    #     width_shift_range=0.15,
+                    #     height_shift_range=0.15,
+                    #     horizontal_flip=True,
+                    #     brightness_range=[0.7, 1.3],
+                    #     zoom_range=0.2)
+                    # datagen.fit(inputs_train)
+                    # gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
+                    # train_steps = len(gen1)
+                    # train = multi_out(gen1)
+
+                    b = inputs_validation_mask
+                    inputs_validation_mask = np.reshape(b, (b.shape[0], b.shape[1], b.shape[2], 1))
+                    inputs_validation = np.concatenate((inputs_validation, inputs_validation_mask), axis=3)
+                    print(inputs_validation.shape)
+
+                    # datagen2 = ImageDataGenerator()
+                    # datagen2.fit(inputs_validation)
+                    # gen2 = datagen2.flow(inputs_validation, targets_validation, batch_size=BATCH_SIZE)
+                    # validation_steps = len(gen2)
+                    # validation = multi_out(gen2)
+                    
+                    model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
+                    model.summary()
+                    opt = Adam(lr = 0.01)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                
+                    # scores = model.fit_generator(train, steps_per_epoch=train_steps, validation_data=(validation), validation_steps=(validation_steps), verbose=1, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop, cb_learningRate])  #cb_bestModel,
+                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop, cb_learningRate] )  # callbacks = [cb_bestModel, cb_earlyStop]
+                    model.save_weights("model_checkpoints/model_last.h5")
+                
+                else:
+                    model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
+                    model.summary()
+                    opt = Adam(lr = 0.0001)
+                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                
+                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3)
+                    model.save_weights("model_checkpoints/model_last.h5")
+
+                history_accuracy_1.extend(scores.history['out1_acc'])
+                history_corr_1.extend(scores.history['out1_corr'])
+                history_rmse_1.extend(scores.history['out1_rmse'])
+                history_accuracy_2.extend(scores.history['out2_acc'])
+                history_corr_2.extend(scores.history['out2_corr'])
+                history_rmse_2.extend(scores.history['out2_rmse'])
+
+                val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                val_history_corr_1.extend(scores.history['val_out1_corr'])
+                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                val_history_corr_2.extend(scores.history['val_out2_corr'])
+                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+            
+                if MODEL_OPTION != 4:
+                    for i in [1, 2, 3, 4]:
+                        model = custom_vgg_model(True, i, LAYER_REGULARIZATION, MODEL_OPTION)
+                        model.load_weights("model_checkpoints/model_best.h5")         
+                        model.summary()
+                        opt = Adam(lr=0.00001)
+                        model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                        
+                        if MODEL_OPTION == 2:
+                            scores = model.fit([inputs_train, inputs_train_mask], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_validation, inputs_validation_mask], [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                        else:
+                            scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=1000, callbacks = [cb_earlyStop])  # cb_bestModel
+                            model.save_weights("model_checkpoints/model_last.h5")
+
+                        history_accuracy_1.extend(scores.history['out1_acc'])
+                        history_corr_1.extend(scores.history['out1_corr'])
+                        history_rmse_1.extend(scores.history['out1_rmse'])
+                        history_accuracy_2.extend(scores.history['out2_acc'])
+                        history_corr_2.extend(scores.history['out2_corr'])
+                        history_rmse_2.extend(scores.history['out2_rmse'])
+
+                        val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                        val_history_corr_1.extend(scores.history['val_out1_corr'])
+                        val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                        val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                        val_history_corr_2.extend(scores.history['val_out2_corr'])
+                        val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+
+                model.load_weights("model_checkpoints/model_best.h5")
+                
+                if MODEL_OPTION == 4:
+                    c = inputs_test_mask
+                    inputs_test_mask = np.reshape(c, (c.shape[0], c.shape[1], c.shape[2], 1))
+                    inputs_test = np.concatenate((inputs_test, inputs_test_mask), axis=3)
+                    print(inputs_test.shape)
+                    result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
+        
+                elif MODEL_OPTION == 2:
+                    result = model.evaluate([inputs_test, inputs_test_mask], [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
+                
+                else:
+                    result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
+
 
             with open('CrossValidation.csv', "a") as fp:
                 wr = csv.writer(fp, dialect='excel')
@@ -560,156 +705,141 @@ def run_model():
                 hist_df.to_json(f)
             history_df = pd.read_json('numpy/history.json')
 
+        if MODEL_OPTION == 1:
+            plt.figure(1)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('stats for output (valence)')
+            plt.ylabel('acc/corr/rmse')
+            plt.xlabel('epoch')
+            plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
+            plt.savefig('visualization/output.png')
+            plt.show()
 
-        plt.figure(1)
-        plt.plot(my_dict['out1_accuracy'])
-        plt.plot(my_dict['val_out1_accuracy'])
-        plt.plot(my_dict['out1_corr'])
-        plt.plot(my_dict['val_out1_corr'])
-        plt.plot(my_dict['out1_rmse'])
-        plt.plot(my_dict['val_out1_rmse'])
-        plt.title('stats for output 1 (valence)')
-        plt.ylabel('acc/corr/rmse')
-        plt.xlabel('epoch')
-        plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
-        plt.savefig('visualization/output1.png')
-        plt.show()
+            plt.figure(3)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.title('model accuracy - Valence')
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/accuracy_out.png')
+            plt.show()
 
-        plt.figure(2)
-        plt.plot(my_dict['out2_accuracy'])
-        plt.plot(my_dict['val_out2_accuracy'])
-        plt.plot(my_dict['out2_corr'])
-        plt.plot(my_dict['val_out2_corr'])
-        plt.plot(my_dict['out2_rmse'])
-        plt.plot(my_dict['val_out2_rmse'])
-        plt.title('stats for output 2 (arousal)')
-        plt.ylabel('acc/corr/rmse')
-        plt.xlabel('epoch')
-        plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
-        plt.savefig('visualization/output2.png')
-        plt.show()
+            plt.figure(4)
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.title('model correlation(CORR) - Valence')
+            plt.ylabel('correlation')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/correlation_out.png')
+            plt.show()
 
-        plt.figure(3)
-        plt.plot(my_dict['out1_accuracy'])
-        plt.plot(my_dict['val_out1_accuracy'])
-        plt.title('model accuracy - Valence')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/accuracy_out1.png')
-        plt.show()
+            plt.figure(5)
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('model root_mean_squared_error - Valence')
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/rmse_out.png')
+            plt.show()
 
-        plt.figure(4)
-        plt.plot(my_dict['out1_corr'])
-        plt.plot(my_dict['val_out1_corr'])
-        plt.title('model correlation(CORR) - Valence')
-        plt.ylabel('correlation')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/correlation_out1.png')
-        plt.show()
-
-        plt.figure(5)
-        plt.plot(my_dict['out1_rmse'])
-        plt.plot(my_dict['val_out1_rmse'])
-        plt.title('model root_mean_squared_error - Valence')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/rmse_out1.png')
-        plt.show()
-
-        plt.figure(6)
-        plt.plot(my_dict['out2_accuracy'])
-        plt.plot(my_dict['val_out2_accuracy'])
-        plt.title('model accuracy - Arousal')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/accuracy_out2.png')
-        plt.show()
-
-        plt.figure(7)
-        plt.plot(my_dict['out2_corr'])
-        plt.plot(my_dict['val_out2_corr'])
-        plt.title('model correlation(CORR) - Arousal')
-        plt.ylabel('correlation')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/correlation_out2.png')
-        plt.show()
-
-        plt.figure(8)
-        plt.plot(my_dict['out2_rmse'])
-        plt.plot(my_dict['val_out2_rmse'])
-        plt.title('model root_mean_squared_error - Arousal')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.savefig('visualization/rmse_out2.png')
-        plt.show()
-
-
-
-def construct_facial_landmarks():
-    no_face_counter = 0
-    total_face_counter = 0
-    landmarks_training = []
-    landmarks_evaluation = []
-
-    detector = dlib.get_frontal_face_detector() 
-    p = "shape_predictor_68_face_landmarks.dat"
-    predictor = dlib.shape_predictor(p) 
-
-    filenames, labels = constructing_data_list(PATH_TO_DATA, FOLD_SIZE)
-    for i in FOLD_ARRAY:
-        landmarks_train = []
-        for name in filenames[i]:
-            img= cv2.imread("AFEW-VA/" + str(name)) 
-            rect = detector(img)
-            print(rect)
-            print(len(rect))
-            if len(rect) == 0:
-                no_face_counter = no_face_counter + 1
-                landmarks_train.append(np.zeros((68,)))
-                print(no_face_counter)
-            else:
-                landmarks = predictor(img, rect[0]) 
-                landmarks = face_utils.shape_to_np(landmarks)
-                landmarks_train.append(landmarks)
-                print(landmarks)
-            total_face_counter = total_face_counter + 1
-        landmarks_training.append(landmarks_train)
-    np.save("numpy/landmarks_training.npy", landmarks_training)
-
-    filenames, labels = constructing_data_list_eval(PATH_TO_EVALUATION)
-    for name in filenames:
-        img = cv2.imread("AFEW-VA_TEST/" + str(name))
-        rect = detector(img)
-        print(rect)
-        print(len(rect))
-        if len(rect) == 0:
-            no_face_counter = no_face_counter + 1
-            print(no_face_counter)
-            landmarks_evaluation.append(np.zeros((68, 2)))
         else:
-            landmarks = predictor(img, rect[0])
-            landmarks = face_utils.shape_to_np(landmarks)
-            landmarks_evaluation.append(landmarks)
-        total_face_counter = total_face_counter + 1
-    np.save("numpy/landmarks_evaluation.npy", landmarks_evaluation)
+            plt.figure(1)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('stats for output 1 (valence)')
+            plt.ylabel('acc/corr/rmse')
+            plt.xlabel('epoch')
+            plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
+            plt.savefig('visualization/output1.png')
+            plt.show()
 
-    print("No-Face-Counter: ")
-    print(no_face_counter)
-    print("Total-Face-Counter: ")
-    print(total_face_counter) 
-    
-    landmarks_training = np.array(landmarks_training)
-    landmarks_evaluation = np.array(landmarks_evaluation)
-    print(landmarks_training)
-    print(landmarks_evaluation)
-    print(landmarks_training.shape)
-    print(landmarks_evaluation.shape)
+            plt.figure(2)
+            plt.plot(my_dict['out2_accuracy'])
+            plt.plot(my_dict['val_out2_accuracy'])
+            plt.plot(my_dict['out2_corr'])
+            plt.plot(my_dict['val_out2_corr'])
+            plt.plot(my_dict['out2_rmse'])
+            plt.plot(my_dict['val_out2_rmse'])
+            plt.title('stats for output 2 (arousal)')
+            plt.ylabel('acc/corr/rmse')
+            plt.xlabel('epoch')
+            plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
+            plt.savefig('visualization/output2.png')
+            plt.show()
+
+            plt.figure(3)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.title('model accuracy - Valence')
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/accuracy_out1.png')
+            plt.show()
+
+            plt.figure(4)
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.title('model correlation(CORR) - Valence')
+            plt.ylabel('correlation')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/correlation_out1.png')
+            plt.show()
+
+            plt.figure(5)
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('model root_mean_squared_error - Valence')
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/rmse_out1.png')
+            plt.show()
+
+            plt.figure(6)
+            plt.plot(my_dict['out2_accuracy'])
+            plt.plot(my_dict['val_out2_accuracy'])
+            plt.title('model accuracy - Arousal')
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/accuracy_out2.png')
+            plt.show()
+
+            plt.figure(7)
+            plt.plot(my_dict['out2_corr'])
+            plt.plot(my_dict['val_out2_corr'])
+            plt.title('model correlation(CORR) - Arousal')
+            plt.ylabel('correlation')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/correlation_out2.png')
+            plt.show()
+
+            plt.figure(8)
+            plt.plot(my_dict['out2_rmse'])
+            plt.plot(my_dict['val_out2_rmse'])
+            plt.title('model root_mean_squared_error - Arousal')
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/rmse_out2.png')
+            plt.show()
+
+
 
 
 #################################################################################################
@@ -718,6 +848,3 @@ def construct_facial_landmarks():
 
 run_model()
 print("Training finished")
-# construct_facial_landmarks()
-# print("Landmarks constructed")
-
