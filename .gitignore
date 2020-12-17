@@ -11,7 +11,7 @@ MasterThesis_Prototype_Python.iml
 /app/dist
 /app/build
 /app/model_checkpoints
-/app/shape_predictor_68_face_landmarks.dat
+/app/*.dat
 /app/*.csv
 
 
