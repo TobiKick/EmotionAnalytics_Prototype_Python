@@ -22,6 +22,7 @@ MasterThesis_Prototype_Python.iml
 /training/model_checkpoints
 /training/numpy
 /training/visualization
+/training/extract_subjects
 
 /training/*.txt
 /training/Untitled.ipynb_checkpoints
