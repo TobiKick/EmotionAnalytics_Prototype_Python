@@ -17,7 +17,7 @@ Assessing the viability of Emotion Recognition for business use-cases in-the-wil
 ## Outcome:
 In this master thesis I could prove that my solution was able to outperform some state-of-the-art papers. Moreover, the experiment disproved the existence of a significant correlation between recognized emotional valence and the indicated interest by test participants
 
-## Utilized tools:
+## Tools & Resources:
 • Python, Keras, Numpy, Pandas, Matplotlib, cv2<br/>
 • Pre-trained networks: MTCNN, VGGFace<br/>
 • AFEW-VA dataset (https://ibug.doc.ic.ac.uk/resources/afew-va-database/)
