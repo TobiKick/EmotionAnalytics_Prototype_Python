@@ -15,6 +15,7 @@ import math
 import argparse 
 import imutils 
 import dlib 
+import pickle
 
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
@@ -37,9 +38,9 @@ LOAD_PROGRESS_FROM_MODEL = False
 SAVE_PROGRESS_TO_MODEL = True
 
 RUN_LOCAL = False
-CONSTRUCT_DATA = False
+CONSTRUCT_DATA = True
 DATA_GEN = True
-CROSS_VALIDATION = False
+CROSS_VALIDATION = True
 
 SHUFFLE_FOLD = True
 ORIGINAL_IMAGES = False
@@ -70,10 +71,10 @@ MODEL_OPTION = 4
 
 FOLD_ARRAY = [0, 1, 2, 3, 4]
 FOLD_SIZE = 120
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 1000
 
-PATH_TO_DATA = 'AFEW-VA_ALL'
+PATH_TO_DATA = './AFEW-VA_ALL'
 
 if RUN_LOCAL == True:
     PATH_TO_DATA = r"C:\Users\Tobias\Desktop\Master-Thesis\Data\AFEW-VA"
@@ -98,49 +99,248 @@ graph_2 = tf.Graph()
 sess_1 = tf.Session(graph= graph_1)
 sess_2 = tf.Session(graph= graph_2)
 
-
+from PIL import Image
 
 def run_model():
     if CONSTRUCT_DATA == True:
-        construct_data(PATH_TO_DATA, ORIGINAL_IMAGES, EXTRACT_FACE_OPTION, FOLD_SIZE, FOLD_ARRAY, DISCARD_UNDETECTED_FACES)
+        x, y = constructing_data_list_2(PATH_TO_DATA, FOLD_SIZE)
+        #construct_data(PATH_TO_DATA, ORIGINAL_IMAGES, EXTRACT_FACE_OPTION, FOLD_SIZE, FOLD_ARRAY, DISCARD_UNDETECTED_FACES)
     
     elif DATA_GEN == True:
-        # with graph_1.as_default():
-        #     with sess_1.as_default():
-        #         K.set_session(sess_1)
-                # sess_2.run(tf.global_variables_initializer())
-        x = True
-        if x == True:
+        x = 1
+        if x == 0:
             pd_train, pd_val, pd_test = construct_filenames(PATH_TO_DATA, FOLD_SIZE)
             print(pd_train.head())
 
-            fold_input = np.load('numpy/X_fold_input_m.npy', allow_pickle=True)
-            fold_input_mask = np.load('numpy/X_fold_input_mask.npy', allow_pickle=True) 
+            t = 0
+            df_arr = []
+            import pandas as pd
+            for elem in [pd_train, pd_val, pd_test]:
+                df = pd.DataFrame(columns=["filename", "valence", "arousal"])
+                names = elem[['filename']].to_numpy()
+               
+                print(len(elem[['filename']]))
+                for i in range(0, len(elem[['filename']])):
+                    img = cv2.imread(os.path.join(PATH_TO_DATA, str(names[i][0])))
+                    if img is not None:
+                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        face, mask = extract_mask_from_image(img, ORIGINAL_IMAGES, EXTRACT_FACE_OPTION, DISCARD_UNDETECTED_FACES)
+                    
+                        if face != []:
+                            df = df.append(elem.loc[[i]])
+                            plt.imsave("./AFEW-VA_JUST_MASK/" + names[i][0], mask)
+                            plt.imsave("./AFEW-VA_JUST_FACE/" + names[i][0], face)
+                            #cv2.imwrite("./AFEW-VA_JUST_MASK/" + names[i][0], mask)
 
-            m0 = fold_input_mask[0]
-            mask0 = np.reshape(m0, (m0.shape[0], m0.shape[1], m0.shape[2], 1))
-            fold_test = np.concatenate((fold_input[0], mask0), axis=3)
-            i = 0
-            for img in fold_test:
-                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_test[i]), img)
-                i = i + 1
+                print(df.head())
+                if t == 0:
+                    df0 = df
+                elif t == 1:
+                    df1 = df
+                else:
+                    df2 = df
+                t = t + 1
 
-            m1 = fold_input_mask[1]
-            mask1 = np.reshape(m1, (m1.shape[0], m1.shape[1], m1.shape[2], 1))
-            fold_val = np.concatenate((fold_input[1], mask1), axis=3)
-            i = 0
-            for img in fold_val:
-                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_val[i]), img)
-                i = i + 1
+            df0.to_pickle('pd_train.pkl')
+            df1.to_pickle('pd_val.pkl')
+            df2.to_pickle('pd_test.pkl')
 
-            t2 = np.concatenate((np.concatenate((fold_input[2], fold_input[3]), axis=0), fold_input[4]), axis=0)
-            m2 = np.concatenate((np.concatenate((fold_input_mask[2], fold_input_mask[3]), axis=0), fold_input_mask[4]), axis=0)
-            mask2 = np.reshape(m2, (m2.shape[0], m2.shape[1], m2.shape[2], 1))
-            fold_train = np.concatenate((t2, mask2), axis=3)
-            i = 0
-            for img in fold_train:
-                matplotlib.image.imsave("./AFEW-VA_ALL_MASK/" + str(pd_train[i]), img)
-                i = i + 1
+        elif x == 1:
+            history_accuracy_1 = []
+            history_corr_1 = []
+            history_rmse_1 = []
+            history_accuracy_2 = []
+            history_corr_2 = []
+            history_rmse_2 = []
+
+            val_history_accuracy_1 = []
+            val_history_corr_1 = []
+            val_history_rmse_1 = []
+            val_history_accuracy_2 = []
+            val_history_corr_2 = []
+            val_history_rmse_2 = []
+
+            # pd_train, pd_val, pd_test = construct_filenames(PATH_TO_DATA, FOLD_SIZE)
+            # print(pd_train.head())
+            import pandas as pd
+            pd_train = pd.read_pickle('pd_train.pkl')
+            print(pd_train.head())
+            pd_val = pd.read_pickle('pd_val.pkl')
+            pd_test = pd.read_pickle('pd_test.pkl')
+
+            seed = 909 # (IMPORTANT) to transform image and corresponding mask with same augmentation parameter.
+            image_datagen = ImageDataGenerator() # width_shift_range=0.1, height_shift_range=0.1, preprocessing_function = image_preprocessing # custom fuction for each image you can use resnet one too.
+            mask_datagen = ImageDataGenerator()  # preprocessing_function = mask_preprocessing  # to make mask as feedable formate (256,256,1)
+            
+            def myGenerator(train_generator_1, train_generator_2):
+                while True:
+                    xy1 = train_generator_1.next() #or next(train_generator)
+                    xy2 = train_generator_2.next() #or next(train_generator1)
+                    data = np.concatenate((xy1[0], xy2[0]), axis=3)
+                    label = xy1[1]
+                    yield (data, label)
+            
+            def myGenerator_separate(train_generator_1, train_generator_2):
+                while True:
+                    xy1 = train_generator_1.next() #or next(train_generator)
+                    xy2 = train_generator_2.next() #or next(train_generator1)
+                    label = xy1[1]
+                    yield ([xy1[0], xy2[0]], label)
+
+            image_gen_train = image_datagen.flow_from_dataframe(pd_train, directory="./AFEW-VA_JUST_FACE/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb', seed=seed, shuffle=True)
+            mask_gen_train = mask_datagen.flow_from_dataframe(pd_train, directory="./AFEW-VA_JUST_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='grayscale', seed=seed, shuffle=True)
+            train_generator = myGenerator_separate(image_gen_train, mask_gen_train)
+
+            image_gen_val = image_datagen.flow_from_dataframe(pd_val, directory="./AFEW-VA_JUST_FACE/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb', seed=seed, shuffle=True)
+            mask_gen_val = mask_datagen.flow_from_dataframe(pd_val, directory="./AFEW-VA_JUST_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='grayscale', seed=seed, shuffle=True)
+            val_generator= myGenerator_separate(image_gen_val, mask_gen_val)
+
+            cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) # waiting for X consecutive epochs that don't reduce the val_loss
+            # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
+            cb_learningRate =  LearningRateScheduler(scheduler)
+            # cb_clr = CyclicLR(base_lr=0.00001, max_lr=0.001, step_size=2000, mode='triangular2')   # 4*(len(inputs_train)/BATCH_SIZE)
+
+            model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
+            model.summary()
+            
+            # opt = Adam(lr = 0.001)
+            model.compile(loss = rmse, optimizer ='rmsprop', metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+
+            scores = model.fit_generator(train_generator, steps_per_epoch=BATCH_SIZE, validation_data=val_generator, validation_steps=BATCH_SIZE, verbose=1, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop])
+            model.save_weights("model_checkpoints/model_top.h5")
+            with open('trainHistoryDict_gen', 'wb') as file_scores:
+                pickle.dump(scores.history, file_scores)
+
+            history_accuracy_1.extend(scores.history['out1_acc'])
+            history_corr_1.extend(scores.history['out1_corr'])
+            history_rmse_1.extend(scores.history['out1_rmse'])
+            history_accuracy_2.extend(scores.history['out2_acc'])
+            history_corr_2.extend(scores.history['out2_corr'])
+            history_rmse_2.extend(scores.history['out2_rmse'])
+
+            val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+            val_history_corr_1.extend(scores.history['val_out1_corr'])
+            val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+            val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+            val_history_corr_2.extend(scores.history['val_out2_corr'])
+            val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+
+            image_gen_eval = image_datagen.flow_from_dataframe(pd_test, directory="./AFEW-VA_ALL/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb', seed=seed, shuffle=True)
+            mask_gen_eval = mask_datagen.flow_from_dataframe(pd_test, directory="./AFEW-VA_JUST_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='grayscale', seed=seed, shuffle=True)
+ 
+            test_generator= myGenerator_separate(image_gen_eval, mask_gen_eval)
+
+            model.load_weights("model_checkpoints/model_best.h5")
+            result = model.evaluate_generator(test_generator, steps=BATCH_SIZE, verbose=1)
+            
+            with open('CrossValidation.csv', "a") as fp:
+                wr = csv.writer(fp, dialect='excel')
+                wr.writerow(result)
+                wr.writerow(model.metrics_names)
+
+            my_dict = {}
+            my_dict['out1_accuracy'] = history_accuracy_1
+            my_dict['out1_corr'] = history_corr_1
+            my_dict['out1_rmse'] = history_rmse_1
+            my_dict['out2_accuracy'] = history_accuracy_2
+            my_dict['out2_corr'] = history_corr_2
+            my_dict['out2_rmse'] = history_rmse_2
+
+            my_dict['val_out1_accuracy'] = val_history_accuracy_1
+            my_dict['val_out1_corr'] = val_history_corr_1
+            my_dict['val_out1_rmse'] = val_history_rmse_1
+            my_dict['val_out2_accuracy'] = val_history_accuracy_2
+            my_dict['val_out2_corr'] = val_history_corr_2
+            my_dict['val_out2_rmse'] = val_history_rmse_2
+
+            plt.figure(1)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('stats for output 1 (valence)')
+            plt.ylabel('acc/corr/rmse')
+            plt.xlabel('epoch')
+            plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
+            plt.savefig('visualization/output1.png')
+            plt.show()
+
+            plt.figure(2)
+            plt.plot(my_dict['out2_accuracy'])
+            plt.plot(my_dict['val_out2_accuracy'])
+            plt.plot(my_dict['out2_corr'])
+            plt.plot(my_dict['val_out2_corr'])
+            plt.plot(my_dict['out2_rmse'])
+            plt.plot(my_dict['val_out2_rmse'])
+            plt.title('stats for output 2 (arousal)')
+            plt.ylabel('acc/corr/rmse')
+            plt.xlabel('epoch')
+            plt.legend(['accuracy: train', 'accuracy: test', 'corr: train', 'corr: test', 'rmse: train', 'rmse: test'], loc='upper left')
+            plt.savefig('visualization/output2.png')
+            plt.show()
+
+            plt.figure(3)
+            plt.plot(my_dict['out1_accuracy'])
+            plt.plot(my_dict['val_out1_accuracy'])
+            plt.title('model accuracy - Valence')
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/accuracy_out1.png')
+            plt.show()
+
+            plt.figure(4)
+            plt.plot(my_dict['out1_corr'])
+            plt.plot(my_dict['val_out1_corr'])
+            plt.title('model correlation(CORR) - Valence')
+            plt.ylabel('correlation')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/correlation_out1.png')
+            plt.show()
+
+            plt.figure(5)
+            plt.plot(my_dict['out1_rmse'])
+            plt.plot(my_dict['val_out1_rmse'])
+            plt.title('model root_mean_squared_error - Valence')
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/rmse_out1.png')
+            plt.show()
+
+            plt.figure(6)
+            plt.plot(my_dict['out2_accuracy'])
+            plt.plot(my_dict['val_out2_accuracy'])
+            plt.title('model accuracy - Arousal')
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/accuracy_out2.png')
+            plt.show()
+
+            plt.figure(7)
+            plt.plot(my_dict['out2_corr'])
+            plt.plot(my_dict['val_out2_corr'])
+            plt.title('model correlation(CORR) - Arousal')
+            plt.ylabel('correlation')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/correlation_out2.png')
+            plt.show()
+
+            plt.figure(8)
+            plt.plot(my_dict['out2_rmse'])
+            plt.plot(my_dict['val_out2_rmse'])
+            plt.title('model root_mean_squared_error - Arousal')
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+            plt.legend(['train', 'test'], loc='upper left')
+            plt.savefig('visualization/rmse_out2.png')
+            plt.show()
 
         else:
             pd_train, pd_val, pd_test = construct_filenames(PATH_TO_DATA, FOLD_SIZE)
@@ -152,8 +352,9 @@ def run_model():
             gen2 = datagen2.flow_from_dataframe(pd_val, directory="./AFEW-VA_ALL_MASK/", x_col="filename", y_col=["valence", "arousal"], class_mode="multi_output", target_size=(224,224), batch_size=BATCH_SIZE, color_mode='rgb')
 
             cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
-            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) # waiting for X consecutive epochs that don't reduce the val_loss
-            cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=7) # waiting for X consecutive epochs that don't reduce the val_loss
+            # cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+            cb_learningRate =  LearningRateScheduler(scheduler)
             cb_clr = CyclicLR(base_lr=0.00001, max_lr=0.001, step_size=2000, mode='triangular2')   # 4*(len(inputs_train)/BATCH_SIZE)
 
             model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
@@ -179,28 +380,32 @@ def run_model():
             fold_target = np.load('numpy/Y_fold_target_original_regr.npy', allow_pickle=True)
 
         elif ORIGINAL_IMAGES == False:
-            if EXTRACT_FACE_OPTION == 0:
+            if EXTRACT_FACE_OPTION == 0 and DISCARD_UNDETECTED_FACES == True:
+                fold_input = np.load('numpy/X_fold_input_discarded.npy', allow_pickle=True)
+            elif EXTRACT_FACE_OPTION == 0 and DISCARD_UNDETECTED_FACES == False:
                 fold_input = np.load('numpy/X_fold_input.npy', allow_pickle=True)
             elif EXTRACT_FACE_OPTION == 1:
                 fold_input = np.load('numpy/X_fold_input_landmarks.npy', allow_pickle=True)
             elif EXTRACT_FACE_OPTION == 2:
                 fold_input = np.load('numpy/X_fold_input_softAttention.npy', allow_pickle=True)
             elif EXTRACT_FACE_OPTION == 3 and DISCARD_UNDETECTED_FACES == False:
-                fold_input = np.load('numpy/X_fold_input_heatmap.npy', allow_pickle=True)
+                fold_input = np.load('numpy_old/X_fold_input_heatmap.npy', allow_pickle=True)
+                fold_target = np.load('numpy_old/Y_fold_target_heatmap.npy', allow_pickle=True)
             elif EXTRACT_FACE_OPTION == 3 and DISCARD_UNDETECTED_FACES == True:
                 fold_input = np.load('numpy/X_fold_input_heatmap_discarded.npy', allow_pickle=True)
+                fold_target = np.load('numpy/Y_fold_target_heatmap_discarded.npy', allow_pickle=True)
             elif EXTRACT_FACE_OPTION == 5: # with mask
                 fold_input = np.load('numpy/X_fold_input_m.npy', allow_pickle=True)
                 fold_input_mask = np.load('numpy/X_fold_input_mask.npy', allow_pickle=True)
 
-            if EXTRACT_FACE_OPTION == 2 and DISCARD_UNDETECTED_FACES == False:
-                fold_target = np.load('numpy/Y_fold_target_regr_softAttention.npy', allow_pickle=True)
-            elif EXTRACT_FACE_OPTION == 5:
-                fold_target = np.load('numpy/Y_fold_target_m.npy', allow_pickle=True)
-            elif DISCARD_UNDETECTED_FACES == True:
-                fold_target = np.load('numpy/Y_fold_target_regr_discarded.npy', allow_pickle=True)
-            else:
-                fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
+            # if EXTRACT_FACE_OPTION == 2 and DISCARD_UNDETECTED_FACES == False:
+            #     fold_target = np.load('numpy/Y_fold_target_regr_softAttention.npy', allow_pickle=True)
+            # elif EXTRACT_FACE_OPTION == 5:
+            #     fold_target = np.load('numpy/Y_fold_target_m.npy', allow_pickle=True)
+            # elif DISCARD_UNDETECTED_FACES == True:
+            #     fold_target = np.load('numpy/Y_fold_target_regr_discarded.npy', allow_pickle=True)
+            # else:
+            #     fold_target = np.load('numpy/Y_fold_target_regr.npy', allow_pickle=True)
 
         # K-fold Cross Validation model evaluation
         history_accuracy_1 = []
@@ -219,8 +424,9 @@ def run_model():
 
         if CROSS_VALIDATION == True:
             for i in FOLD_ARRAY:
-                # cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
-                # cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) 
+                cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+                cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) 
+                cb_learningRate =  LearningRateScheduler(scheduler)
             
                 inputs_test = np.array(fold_input[i])
                 targets_test = np.array(fold_target[i])
@@ -260,46 +466,59 @@ def run_model():
                     gen1 = datagen.flow(inputs_train, targets_train, batch_size=BATCH_SIZE)
                     train_steps = len(gen1)
                     train = multi_out(gen1)
-                    scores = model.fit(train, steps_per_epoch=train_steps, verbose=1, epochs=3)
+                    scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), verbose=1, epochs=3)
                 else:
-                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], verbose=1, batch_size=BATCH_SIZE, epochs=3)
+                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), verbose=1, batch_size=BATCH_SIZE, epochs=3)
                 
-                model.save_weights("model_checkpoints/model_top.h5")
+                model.save_weights("model_checkpoints/model_best.h5")
+                with open('trainHistoryDict_crossVal_' + str(i) + '_0', 'wb') as file_scores:
+                    pickle.dump(scores.history, file_scores)
 
-                history_accuracy_1.extend(scores.history['out1_accuracy'])
+                history_accuracy_1.extend(scores.history['out1_acc'])
                 history_corr_1.extend(scores.history['out1_corr'])
                 history_rmse_1.extend(scores.history['out1_rmse'])
-                history_accuracy_2.extend(scores.history['out2_accuracy'])
+                history_accuracy_2.extend(scores.history['out2_acc'])
                 history_corr_2.extend(scores.history['out2_corr'])
                 history_rmse_2.extend(scores.history['out2_rmse'])
 
-                for j in [1, 2, 3, 4]:
-                    if j == 1:
-                        nr_epochs = 20
-                    else:
-                        nr_epochs = 5
+                val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                val_history_corr_1.extend(scores.history['val_out1_corr'])
+                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                val_history_corr_2.extend(scores.history['val_out2_corr'])
+                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
+                for j in [1, 2, 3, 4]:
                     model = custom_vgg_model(True, j, LAYER_REGULARIZATION, MODEL_OPTION)
-                    model.load_weights("model_checkpoints/model_top.h5")
+                    model.load_weights("model_checkpoints/model_best.h5")
                     model.summary()
                     opt = Adam(lr=0.00001)
                     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                     
                     if DATA_AUGMENTATION:
-                        scores = model.fit(train, steps_per_epoch=train_steps, verbose=1, epochs=15)
+                        scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), verbose=1, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop])
                     else:
-                        scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], verbose=1, batch_size=BATCH_SIZE, epochs=nr_epochs)
+                        scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_test, [targets_test[:,0], targets_test[:,1]]), verbose=1, batch_size=BATCH_SIZE, epochs=1000,  callbacks = [cb_bestModel, cb_earlyStop])
 
                     model.save_weights("model_checkpoints/model_top.h5")
+                    with open('trainHistoryDict_crossVal_' + str(i) + '_1', 'wb') as file_scores:
+                        pickle.dump(scores.history, file_scores)
 
-                    history_accuracy_1.extend(scores.history['out1_accuracy'])
+                    history_accuracy_1.extend(scores.history['out1_acc'])
                     history_corr_1.extend(scores.history['out1_corr'])
                     history_rmse_1.extend(scores.history['out1_rmse'])
-                    history_accuracy_2.extend(scores.history['out2_accuracy'])
+                    history_accuracy_2.extend(scores.history['out2_acc'])
                     history_corr_2.extend(scores.history['out2_corr'])
                     history_rmse_2.extend(scores.history['out2_rmse'])
 
-                model.load_weights("model_checkpoints/model_top.h5")
+                    val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                    val_history_corr_1.extend(scores.history['val_out1_corr'])
+                    val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                    val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                    val_history_corr_2.extend(scores.history['val_out2_corr'])
+                    val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+
+                model.load_weights("model_checkpoints/model_best.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
 
                 with open('CrossValidation.csv', "a") as fp:
@@ -323,10 +542,17 @@ def run_model():
             my_dict['out2_accuracy'] = history_accuracy_2
             my_dict['out2_corr'] = history_corr_2
             my_dict['out2_rmse'] = history_rmse_2
+
+            my_dict['val_out1_accuracy'] = val_history_accuracy_1
+            my_dict['val_out1_corr'] = val_history_corr_1
+            my_dict['val_out1_rmse'] = val_history_rmse_1
+            my_dict['val_out2_accuracy'] = val_history_accuracy_2
+            my_dict['val_out2_corr'] = val_history_corr_2
+            my_dict['val_out2_rmse'] = val_history_rmse_2
         
         else:
             cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
-            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=10) # waiting for X consecutive epochs that don't reduce the val_loss
+            cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) # waiting for X consecutive epochs that don't reduce the val_loss
             cb_learningRate = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
             cb_clr = CyclicLR(base_lr=0.00001, max_lr=0.001, step_size=2000, mode='triangular2')   # 4*(len(inputs_train)/BATCH_SIZE)
             # cb_learningRate =  LearningRateScheduler(scheduler)
@@ -434,49 +660,52 @@ def run_model():
 
                 model = custom_vgg_model(False, 0, LAYER_REGULARIZATION, MODEL_OPTION)
                 model.summary()
-                opt = Adam(lr=0.0001)
+                opt = Adam(lr=0.00005)  # 0.0001
                 model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=3)
+                scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=1000, callbacks = [cb_bestModel, cb_earlyStop])
                 model.save_weights("model_checkpoints/model_best.h5")
 
-                history_accuracy_1.extend(scores.history['out1_accuracy'])
+                with open('trainHistoryDict_0', 'wb') as file_scores:
+                    pickle.dump(scores.history, file_scores)
+
+                history_accuracy_1.extend(scores.history['out1_acc'])
                 history_corr_1.extend(scores.history['out1_corr'])
                 history_rmse_1.extend(scores.history['out1_rmse'])
-                history_accuracy_2.extend(scores.history['out2_accuracy'])
+                history_accuracy_2.extend(scores.history['out2_acc'])
                 history_corr_2.extend(scores.history['out2_corr'])
                 history_rmse_2.extend(scores.history['out2_rmse'])
 
-                val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
+                val_history_accuracy_1.extend(scores.history['val_out1_acc'])
                 val_history_corr_1.extend(scores.history['val_out1_corr'])
                 val_history_rmse_1.extend(scores.history['val_out1_rmse'])
-
-                val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
+                val_history_accuracy_2.extend(scores.history['val_out2_acc'])
                 val_history_corr_2.extend(scores.history['val_out2_corr'])
                 val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
-                for i in [1, 2, 3, 4]:
-                    model = custom_vgg_model(True, i, LAYER_REGULARIZATION, MODEL_OPTION)
-                    model.load_weights("model_checkpoints/model_best.h5")
-                    model.summary()
-                    opt = Adam(lr=0.00001)
-                    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+                # for i in [1, 2, 3, 4]:
+                #     model = custom_vgg_model(True, i, LAYER_REGULARIZATION, MODEL_OPTION)
+                #     model.load_weights("model_checkpoints/model_best.h5")
+                #     model.summary()
+                #     opt = Adam(lr=0.00001)
+                #     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                      
-                    scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                #     scores = model.fit(train, steps_per_epoch=train_steps, validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]), validation_steps=(len(inputs_validation)/BATCH_SIZE) ,verbose=1, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
+                #     with open('trainHistoryDict_' + str(i), 'wb') as file_scores:
+                #         pickle.dump(scores.history, file_scores)
 
-                    history_accuracy_1.extend(scores.history['out1_accuracy'])
-                    history_corr_1.extend(scores.history['out1_corr'])
-                    history_rmse_1.extend(scores.history['out1_rmse'])
-                    history_accuracy_2.extend(scores.history['out2_accuracy'])
-                    history_corr_2.extend(scores.history['out2_corr'])
-                    history_rmse_2.extend(scores.history['out2_rmse'])
+                #     history_accuracy_1.extend(scores.history['out1_acc'])
+                #     history_corr_1.extend(scores.history['out1_corr'])
+                #     history_rmse_1.extend(scores.history['out1_rmse'])
+                #     history_accuracy_2.extend(scores.history['out2_acc'])
+                #     history_corr_2.extend(scores.history['out2_corr'])
+                #     history_rmse_2.extend(scores.history['out2_rmse'])
 
-                    val_history_accuracy_1.extend(scores.history['val_out1_accuracy'])
-                    val_history_corr_1.extend(scores.history['val_out1_corr'])
-                    val_history_rmse_1.extend(scores.history['val_out1_rmse'])
-
-                    val_history_accuracy_2.extend(scores.history['val_out2_accuracy'])
-                    val_history_corr_2.extend(scores.history['val_out2_corr'])
-                    val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+                #     val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                #     val_history_corr_1.extend(scores.history['val_out1_corr'])
+                #     val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                #     val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                #     val_history_corr_2.extend(scores.history['val_out2_corr'])
+                #     val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
                 model.load_weights("model_checkpoints/model_best.h5")
                 result = model.evaluate(inputs_test, [targets_test[:,0], targets_test[:,1]], verbose=1, batch_size=BATCH_SIZE)
@@ -612,7 +841,7 @@ def run_model():
                     opt = Adam(lr = 0.0001)
                     model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
                 
-                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3)
+                    scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=3, callbacks = [cb_bestModel ,cb_earlyStop])
                     model.save_weights("model_checkpoints/model_last.h5")
 
                 history_accuracy_1.extend(scores.history['out1_acc'])
@@ -640,22 +869,22 @@ def run_model():
                         if MODEL_OPTION == 2:
                             scores = model.fit([inputs_train, inputs_train_mask], [targets_train[:, 0], targets_train[:,1]], validation_data=([inputs_validation, inputs_validation_mask], [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=EPOCHS, callbacks = [cb_bestModel ,cb_earlyStop])
                         else:
-                            scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=1000, callbacks = [cb_earlyStop])  # cb_bestModel
+                            scores = model.fit(inputs_train, [targets_train[:, 0], targets_train[:,1]], validation_data=(inputs_validation, [targets_validation[:,0], targets_validation[:,1]]),verbose=1, batch_size=BATCH_SIZE, epochs=1000, callbacks = [cb_bestModel ,cb_earlyStop])  # cb_bestModel
                             model.save_weights("model_checkpoints/model_last.h5")
 
-                        history_accuracy_1.extend(scores.history['out1_acc'])
-                        history_corr_1.extend(scores.history['out1_corr'])
-                        history_rmse_1.extend(scores.history['out1_rmse'])
-                        history_accuracy_2.extend(scores.history['out2_acc'])
-                        history_corr_2.extend(scores.history['out2_corr'])
-                        history_rmse_2.extend(scores.history['out2_rmse'])
+                history_accuracy_1.extend(scores.history['out1_acc'])
+                history_corr_1.extend(scores.history['out1_corr'])
+                history_rmse_1.extend(scores.history['out1_rmse'])
+                history_accuracy_2.extend(scores.history['out2_acc'])
+                history_corr_2.extend(scores.history['out2_corr'])
+                history_rmse_2.extend(scores.history['out2_rmse'])
 
-                        val_history_accuracy_1.extend(scores.history['val_out1_acc'])
-                        val_history_corr_1.extend(scores.history['val_out1_corr'])
-                        val_history_rmse_1.extend(scores.history['val_out1_rmse'])
-                        val_history_accuracy_2.extend(scores.history['val_out2_acc'])
-                        val_history_corr_2.extend(scores.history['val_out2_corr'])
-                        val_history_rmse_2.extend(scores.history['val_out2_rmse'])
+                val_history_accuracy_1.extend(scores.history['val_out1_acc'])
+                val_history_corr_1.extend(scores.history['val_out1_corr'])
+                val_history_rmse_1.extend(scores.history['val_out1_rmse'])
+                val_history_accuracy_2.extend(scores.history['val_out2_acc'])
+                val_history_corr_2.extend(scores.history['val_out2_corr'])
+                val_history_rmse_2.extend(scores.history['val_out2_rmse'])
 
                 model.load_weights("model_checkpoints/model_best.h5")
                 

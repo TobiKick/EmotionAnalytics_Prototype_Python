@@ -31,6 +31,8 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder, MinMaxScaler
 import imgaug as ia
 from imgaug.augmentables.heatmaps import HeatmapsOnImage
 from scipy.ndimage.filters import gaussian_filter
+from time import sleep
+from collections import defaultdict
 
 ###########################################################################
 IMAGE_HEIGHT = 224
@@ -41,25 +43,22 @@ IMG_FORMAT = '.png'
 
 
 ## setting Keras sessions for each network - First Network
-# sess = tf.compat.v1.Session()
-# graph = tf.compat.v1.get_default_graph()
-# K.set_session(sess)
-
+sess = tf.compat.v1.Session()
+graph = tf.compat.v1.get_default_graph()
+K.set_session(sess)
+detector = MTCNN()
 
 p = "shape_predictor_68_face_landmarks.dat"
 dlib_predictor = dlib.shape_predictor(p) 
 
+
 def detect_face(image):
-    # global sess
-    # global graph
-    # with graph.as_default():
-    #     K.set_session(sess)
+    global sess
+    global graph
+    with graph.as_default():
+        K.set_session(sess)
+        face = detector.detect_faces(image)
 
-    detector = MTCNN()
-    face = detector.detect_faces(image)
-
-
-    print(len(face))
     if len(face) >= 1:
         return face
     elif len(face) > 1:
@@ -123,60 +122,6 @@ def extract_mask_from_image(image, original_images, extract_face_option, discard
             out = asarray(face_image)
         
         return out, mask_out
-
-# def extract_mask_from_image_GEN(image, original_images, extract_face_option, discard_undetected_faces, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
-#     img = image.copy()
-#     image = asarray(img)
-
-#     face = detect_face(image)
-#     print(face)
-
-#     if face == []: 
-#         return [], []     # discard the image and its label from training
-#     else:
-#         # extract the bounding box from the requested face
-#         box = np.asarray(face[0]["box"])
-#         print(box)
-#         box[box < 0] = 0
-#         x1, y1, width, height =  box
-#         x2, y2 = x1 + width, y1 + height
-            
-#         rect = dlib.rectangle(left=x1, top=y1, right=(x1+width), bottom=(y1+height))
-#         face_image = Image.fromarray((image * 255).astype(np.uint8))
-#         image = asarray(face_image)
-#         print(img.shape)
-#         landmarks = dlib_predictor(image, rect)
-
-#         points = []
-#         for n in range(0,68):
-#             x = landmarks.part(n).x
-#             y = landmarks.part(n).y
-#             points.append([x,y])
-#         points = np.float32(points)
-
-#         pt_map=np.zeros([IMAGE_WIDTH, IMAGE_HEIGHT])
-#         try:
-#             for point in points:
-#                 pt_map[int(point[1]),int(point[0])]=1
-    
-#             mask_out = gaussian_filter(pt_map, sigma=1)
-#         except:
-#             mask_out=pt_map
-#             print('Empty Mask')
-
-#         out = image  
-#         if original_images == False:
-#             mask_boundary = mask_out[y1:y2, x1:x2]
-#             mask_image = Image.fromarray(mask_boundary)
-#             mask_image = mask_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
-#             mask_out = asarray(mask_image)
-
-#             face_boundary = image[y1:y2, x1:x2]
-#             face_image = Image.fromarray(face_boundary)
-#             face_image = face_image.resize((IMAGE_WIDTH, IMAGE_HEIGHT))
-#             out = asarray(face_image)
-        
-#         return out, mask_out
 
 
 def extract_face_from_image(image, original_images, extract_face_option, discard_undetected_faces, required_size=(IMAGE_HEIGHT, IMAGE_WIDTH)):
@@ -288,23 +233,22 @@ def extract_face_from_image(image, original_images, extract_face_option, discard
             return out
 
 
-def get_labels_from_file(path_to_file, folder):
-    filenames = []
-    labels = []
-    
-    with open(path_to_file) as p:
-        data = json.load(p)
+# def get_labels_from_file(path_to_file, folder):
+#     filenames = []
+#     labels = []
+   
+#     with open(path_to_file) as p:
+#         data = json.load(p)
         
-    if not 'frames' in data or len(data['frames']) == 0:     
-        exit(0)
-    else:
-        frames = data['frames']
-        for key, value in frames.items():
-            filenames.append(str(folder + '/' + key + IMG_FORMAT))
-            labels.append([value['valence'], value['arousal']])
+#     if not 'frames' in data or len(data['frames']) == 0:     
+#         exit(0)
+#     else:
+#         frames = data['frames']
+#         for key, value in frames.items():
+#             filenames.append(str(folder + '/' + key + IMG_FORMAT))
+#             labels.append([value['valence'], value['arousal']])
     
-    return filenames, labels
-
+#     return filenames, labels
 
 def constructing_data_list_eval(root_data_dir):
     filenames = []
@@ -320,25 +264,66 @@ def constructing_data_list_eval(root_data_dir):
         
     return np.array(filenames), np.array(labels)
 
-
-def constructing_data_list(root_data_dir, fold_size):
+def constructing_data_list_2(root_data_dir, fold_size):
+    subjects = defaultdict(dict)
     filenames = []
-    labels = []
     filenames_list = []
+    labels = []
     labels_list = []
-    i = 0
 
     for train_dir in os.listdir(root_data_dir):
         for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
             for file in files:
                 if file[-5:] == '.json':
-                    f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
-                    filenames.extend(f)
-                    labels.extend(l)
+                    with open(os.path.join(root_data_dir, train_dir, file)) as p:
+                        data = json.load(p)
+                    frames = data['frames']    
+                    actor = data['actor']
 
-        i = i + 1
-        print(i)
-        if i == fold_size:
+                    for key, value in frames.items():
+                        try:
+                            sub_dict = subjects[actor]
+                        except KeyError as e:
+                            subjects.update({actor: {}})
+                            sub_dict = subjects[actor]
+                       
+                        try:
+                            sub_sub_dict = subjects[actor][train_dir]
+                        except KeyError as e:
+                            subjects[actor].update({train_dir: {}})
+                            sub_sub_dict = subjects[actor][train_dir]
+
+                        sub_sub_dict.update({str(key + IMG_FORMAT): [value['valence'], value['arousal']]})
+                        sub_dict.update({str(train_dir): sub_sub_dict})
+                        subjects.update({actor: sub_dict})
+    
+    with open('videoclips.csv', "w") as fp:
+        wr = csv.writer(fp)
+        count = 0
+        for key, value in subjects.items():
+            for k,v in value.items():
+                count = count + 1
+            print(key)
+            print(count)
+            wr.writerow([str(key) + ": " + str(count)])
+            count = 0   
+
+    count = 0
+    for key, value in subjects.items():
+        for k,v in value.items():
+            count = count + 1
+    
+    fold_size = count / 5  # 5 folds
+    i = 0
+    
+
+    for key, value in subjects.items():
+        for k, v in value.items():
+            filenames.append(k)
+            labels.append(v)
+            i = i + 1
+
+        if i >= fold_size:
             filenames_list.append(np.array(filenames))
             labels_list.append(np.array(labels))
             filenames = []
@@ -346,7 +331,92 @@ def constructing_data_list(root_data_dir, fold_size):
             i = 0
             print("FOLD DONE")
 
+    filenames_list.append(np.array(filenames))
+    labels_list.append(np.array(labels))
+
     return np.array(filenames_list), np.array(labels_list)
+
+
+
+def constructing_data_list(root_data_dir, fold_size):
+    subjects = {}
+    filenames = []
+    filenames_list = []
+    labels = []
+    labels_list = []
+
+    for train_dir in os.listdir(root_data_dir):
+        for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
+            for file in files:
+                if file[-5:] == '.json':
+                    with open(os.path.join(root_data_dir, train_dir, file)) as p:
+                        data = json.load(p)
+                    frames = data['frames']    
+                    actor = data['actor']
+
+                    for key, value in frames.items():
+                        try:
+                            sub_dict = subjects[actor]
+                        except KeyError as e:
+                            subjects.update({actor: {}})
+                            sub_dict = subjects[actor]
+                       
+                        sub_dict.update({str(train_dir + '/' + key + IMG_FORMAT): [value['valence'], value['arousal']]})
+                        subjects.update({actor: sub_dict})
+    
+    count = 0
+    for key, value in subjects.items():
+        for k,v in value.items():
+            count = count + 1
+    
+    fold_size = count / 5  # 5 folds
+    i = 0
+    
+
+    for key, value in subjects.items():
+        for k, v in value.items():
+            filenames.append(k)
+            labels.append(v)
+            i = i + 1
+
+        if i >= fold_size:
+            filenames_list.append(np.array(filenames))
+            labels_list.append(np.array(labels))
+            filenames = []
+            labels = []
+            i = 0
+            print("FOLD DONE")
+
+    filenames_list.append(np.array(filenames))
+    labels_list.append(np.array(labels))
+
+    return np.array(filenames_list), np.array(labels_list)
+
+# def constructing_data_list(root_data_dir, fold_size):
+#     filenames = []
+#     labels = []
+#     filenames_list = []
+#     labels_list = []
+#     i = 0
+
+#     for train_dir in os.listdir(root_data_dir):
+#         for subdir, dirs, files in os.walk(os.path.join(root_data_dir, train_dir)):
+#             for file in files:
+#                 if file[-5:] == '.json':
+#                     f, l = get_labels_from_file(os.path.join(root_data_dir, train_dir, file), train_dir)
+#                     filenames.extend(f)
+#                     labels.extend(l)
+
+#         i = i + 1
+#         if i == fold_size:
+#             filenames_list.append(np.array(filenames))
+#             labels_list.append(np.array(labels))
+#             filenames = []
+#             labels = []
+#             i = 0
+#             print("FOLD DONE")
+
+#     return np.array(filenames_list), np.array(labels_list)
 
 
 def preloading_data(path_to_data, filenames, is_original_images, extract_face_option, discard_undetected_faces):
@@ -381,16 +451,12 @@ def preloading_data_w_labels(path_to_data, filenames, labels, is_original_images
 
             if extract_face_option == 5: # with mask
                 face, mask = extract_mask_from_image(img, is_original_images, extract_face_option, discard_undetected_faces)
-                face = np.array(face)
+                # face = np.array(face)
                 # face = face.astype('float32')
                 # face = expand_dims(face, axis=0)
                 # face = preprocess_input(face, version=2)
             else:
                 face = extract_face_from_image(img, is_original_images, extract_face_option, discard_undetected_faces)
-                face = np.array(face)
-                face = face.astype('float32')
-                face = expand_dims(face, axis=0)
-                face = preprocess_input(face, version=2)
 
             if face != []:
                 list_faces.append(face)
@@ -480,10 +546,12 @@ class CustomFineTuningCallback(keras.callbacks.Callback):
 
 
 def scheduler(epoch, lr):
-    print("Learning rate: " + str(lr))
+    
     if epoch == 0:
+        print("New learning rate: " + str(lr))
         return float(lr)
     else:
+        print("New learning rate: " + str(lr *0.9))
         return float(lr * 0.9) 
 
 
@@ -502,13 +570,9 @@ def construct_filenames(path_to_data, fold_size):
 
     fn_train = np.concatenate((filenames[2], filenames[3], filenames[4]), axis=0)
     labels_train = np.concatenate((labels[2], labels[3], labels[4]), axis=0)
-    
-    print(fn_train.shape)
-    print(labels_train.shape)
 
     
     train = np.column_stack((fn_train, labels_train))
-    print(train.shape)
     df1 = pd.DataFrame(data=train, columns=["filename", "valence", "arousal"])
 
     val = np.column_stack((fn_val, labels_val))
@@ -518,6 +582,18 @@ def construct_filenames(path_to_data, fold_size):
     df3 = pd.DataFrame(data=test, columns=["filename", "valence", "arousal"])
 
     return df1, df2, df3
+
+def normalize_data_4_channels(arr):
+    arr_shape = arr.shape
+    print(arr_shape)
+    arr = arr.reshape(-1, 4)
+
+    scaler = MinMaxScaler()  # default range [0,1]
+    scaler.fit(arr)
+    arr = scaler.transform(arr)
+    arr = arr.reshape(arr_shape)
+    return arr
+
 
 def normalize_data(arr):
     # x_temp = x_temp[..., ::-1]
@@ -586,8 +662,13 @@ def construct_data(path_to_data, original_images, extract_face_option, fold_size
             fold_target.append(preload_target)         
 
         fold_input = np.array(fold_input)
-        fold_target = np.array(fold_target)        
-        fold_input_mask = np.array(fold_input_mask)
+        fold_target = np.array(fold_target)  
+
+        if extract_face_option == 5:
+            faces = fold_input.astype('float32')
+            faces = expand_dims(faces, axis=0)
+            fold_input = preprocess_input(faces, version=2)
+            fold_input_mask = np.array(fold_input_mask)
 
         if extract_face_option == 1 and discard_undetected_faces == False: # landmarks
             np.save('numpy/X_fold_input_landmarks.npy', fold_input)
@@ -595,8 +676,10 @@ def construct_data(path_to_data, original_images, extract_face_option, fold_size
             np.save('numpy/X_fold_input_softAttention.npy', fold_input)
         elif extract_face_option == 3 and discard_undetected_faces == False: # heatmap
             np.save('numpy/X_fold_input_heatmap.npy', fold_input)
+            np.save('numpy/Y_fold_target_heatmap.npy', fold_target)
         elif extract_face_option == 3 and discard_undetected_faces == True: # heatmap
             np.save('numpy/X_fold_input_heatmap_discarded.npy', fold_input)
+            np.save('numpy/Y_fold_target_heatmap_discarded.npy', fold_target)
         elif extract_face_option == 5: # mask
             np.save('numpy/X_fold_input_mask.npy', fold_input_mask)
             np.save('numpy/X_fold_input_m.npy', fold_input)
@@ -604,10 +687,10 @@ def construct_data(path_to_data, original_images, extract_face_option, fold_size
         elif extract_face_option == 0: # no setting
             np.save('numpy/X_fold_input.npy', fold_input)
 
-        if discard_undetected_faces == False:
-            np.save('numpy/Y_fold_target_regr.npy', fold_target)
-        elif discard_undetected_faces == True and extract_face_option != 5:
-            np.save('numpy/Y_fold_target_regr_discarded.npy', fold_target)
+        # if discard_undetected_faces == False:
+        #     np.save('numpy/Y_fold_target_regr.npy', fold_target)
+        # elif discard_undetected_faces == True and extract_face_option != 5:
+        #     np.save('numpy/Y_fold_target_regr_discarded.npy', fold_target)
 
 
 

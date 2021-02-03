@@ -13,21 +13,158 @@ from keras import activations
 import keras as keras
 import keras.backend as K
 
-# sess2 = tf.compat.v1.Session()
-# graph = tf.compat.v1.get_default_graph()
-# K.set_session(sess2)
+sess2 = tf.compat.v1.Session()
+graph = tf.compat.v1.get_default_graph()
+K.set_session(sess2)
 
-RESNET = 18
+RESNET = 50
 
 def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_option):
-    # global sess2
-    # global graph
-    # with graph.as_default():
-    #     sess2 = tf.compat.v1.Session()
-    #     graph = tf.compat.v1.get_default_graph()
-    # K.set_session(sess2)
+    global sess2
+    global graph
+    with graph.as_default():
+        K.set_session(sess2)
 
-    if model_option == 4: # self coded ResNet50
+    if model_option == -1: # ResNet50 from scracth without separate mask !!
+        model_input = Input(shape=(224, 224, 3))
+        x = Conv2D(filters=64, kernel_size=(7, 7), strides=2)(model_input)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x1 = MaxPool2D((3,3), strides=2, padding="same")(x)
+
+        # Stage 1
+        # Conv block
+        x = Conv2D(filters=64, kernel_size=(1,1), strides=1, padding='valid')(x1)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=64, kernel_size=(3,3), strides=1, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=256, kernel_size=(1,1), strides=1, padding='valid')(x)
+        x2 = BatchNormalization()(x)
+        
+        x1 = Conv2D(filters=256, kernel_size=(1,1), strides=1, padding='valid')(x1)
+        x1 = BatchNormalization()(x1)
+        x = Add()([x1, x2])
+        x1 = Activation(activations.relu)(x)
+
+        # Stage 1
+        # Identity block
+        for i in [0, 1]:
+            x = Conv2D(filters=64, kernel_size=(1,1), strides=1, padding='valid')(x1)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=64, kernel_size=(3,3), strides=1, padding='same')(x)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=256, kernel_size=(1,1), strides=1, padding='valid')(x)
+            x2 = BatchNormalization()(x)
+            x = Add()([x1, x2])
+            x1 = Activation(activations.relu)(x)
+
+        # Stage 2
+        # Conv block
+        x = Conv2D(filters=128, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=128, kernel_size=(3,3), strides=1, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=512, kernel_size=(1,1), strides=1, padding='valid')(x)
+        x2 = BatchNormalization()(x)
+        
+        x1 = Conv2D(filters=512, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x1 = BatchNormalization()(x1)
+        x = Add()([x1, x2])
+        x1 = Activation(activations.relu)(x)
+
+        # Stage 2
+        # Identity block
+        for i in [0, 1, 2]:
+            x = Conv2D(filters=128, kernel_size=(1,1), strides=1, padding='valid')(x1)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=128, kernel_size=(3,3), strides=1, padding='same')(x)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=512, kernel_size=(1,1), strides=1, padding='valid')(x)
+            x2 = BatchNormalization()(x)
+            x = Add()([x1, x2])
+            x1 = Activation(activations.relu)(x)
+
+        # Stage 3
+        # Conv block
+        x = Conv2D(filters=256, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=256, kernel_size=(3,3), strides=1, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=1024, kernel_size=(1,1), strides=1, padding='valid')(x)
+        x2 = BatchNormalization()(x)
+        
+        x1 = Conv2D(filters=1024, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x1 = BatchNormalization()(x1)
+        x = Add()([x1, x2])
+        x1 = Activation(activations.relu)(x)
+
+        # Stage 3
+        # Identity block
+        for i in [0, 1, 2, 3, 4]:
+            x = Conv2D(filters=256, kernel_size=(1,1), strides=1, padding='valid')(x1)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=256, kernel_size=(3,3), strides=1, padding='same')(x)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=1024, kernel_size=(1,1), strides=1, padding='valid')(x)
+            x2 = BatchNormalization()(x)
+            x = Add()([x1, x2])
+            x1 = Activation(activations.relu)(x)
+
+        # Stage 4
+        # Conv block
+        x = Conv2D(filters=512, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=512, kernel_size=(3,3), strides=1, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Activation(activations.relu)(x)
+        x = Conv2D(filters=2048, kernel_size=(1,1), strides=1, padding='valid')(x)
+        x2 = BatchNormalization()(x)
+        
+        x1 = Conv2D(filters=2048, kernel_size=(1,1), strides=2, padding='valid')(x1)
+        x1 = BatchNormalization()(x1)
+        x = Add()([x1, x2])
+        x1 = Activation(activations.relu)(x)
+
+        # Stage 4
+        # Identity block
+        for i in [0, 1]:
+            x = Conv2D(filters=512, kernel_size=(1,1), strides=1, padding='valid')(x1)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=512, kernel_size=(3,3), strides=1, padding='same')(x)
+            x = BatchNormalization()(x)
+            x = Activation(activations.relu)(x)
+            x = Conv2D(filters=2048, kernel_size=(1,1), strides=1, padding='valid')(x)
+            x2 = BatchNormalization()(x)
+            x = Add()([x1, x2])
+            x1 = Activation(activations.relu)(x)
+
+        x = GlobalAveragePooling2D()(x1)       
+        x = Dropout(0.7)(x)     
+        x = Dense(1024, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.6)(x)
+
+        out1 = Dense(1, activation='tanh', name='out1')(x)
+        out2 = Dense(1, activation='tanh', name='out2')(x)
+
+        custom_vgg_model = Model(inputs=[model_input], outputs= [out1, out2])
+        return custom_vgg_model
+
+    elif model_option == 4: # self coded ResNet50
         if RESNET == 18:
             model_input = Input(shape=(224, 224, 4))
             x = Conv2D(filters=64, kernel_size=(7, 7), strides=2)(model_input)
@@ -114,9 +251,23 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
             x = Add()([x1, x2])
             x1 = Activation(activations.relu)(x)
 
+            x = GlobalAveragePooling2D()(x1)
+            x = Dense(1024, activation='relu')(x)
+            x = BatchNormalization()(x)
+            x = Dropout(0.6)(x)
+
+            out1 = Dense(1, activation='tanh', name='out1')(x)
+            out2 = Dense(1, activation='tanh', name='out2')(x)
+
+            custom_vgg_model = Model(inputs=[model_input], outputs= [out1, out2])
+            return custom_vgg_model
+    
+
+    #######################################################################################
+    #######################################################################################
 
         elif RESNET == 50:
-            model_input = Input(shape=(224, 224, 4))
+            model_input = Input(shape=(224, 224, 3))
             x = Conv2D(filters=64, kernel_size=(7, 7), strides=2)(model_input)
             x = BatchNormalization()(x)
             x = Activation(activations.relu)(x)
@@ -243,18 +394,38 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
                 x1 = Activation(activations.relu)(x)
 
 
-        x = GlobalAveragePooling2D()(x1)
-        x = Dense(1024, activation='relu')(x)
-        x = BatchNormalization()(x)
-        x = Dropout(0.6)(x)
+            x = GlobalAveragePooling2D()(x1)
+            #######
+            #######
+            mask_input = Input(shape=(224, 224, 1))
+            #y = Reshape((224, 224, 1), input_shape=(224,224))(y_input)
 
-        out1 = Dense(1, activation='tanh', name='out1')(x)
-        out2 = Dense(1, activation='tanh', name='out2')(x)
+            y = Conv2D(filters=32, kernel_size=(7,7), strides=2, activation='relu')(mask_input)
+            y = MaxPool2D((2,2), padding="valid")(y)
 
-        custom_vgg_model = Model(inputs=model_input, outputs= [out1, out2])
-        return custom_vgg_model
-    
-    
+            y = Conv2D(filters=32, kernel_size=(3,3), strides=1, activation='relu')(y)
+            y = MaxPool2D((2,2), padding="valid")(y)
+
+            y = Conv2D(filters=64, kernel_size=(3,3), strides=2, activation='relu')(y)
+            y = Conv2D(filters=64, kernel_size=(3,3), strides=1, activation='relu')(y)
+            y = MaxPool2D((2,2), padding="valid")(y)
+            y = BatchNormalization()(y)
+            y = Flatten()(y)
+            #######
+            #######
+            xy = Concatenate(axis=-1)([x, y])       
+            x = Dropout(0.7)(x)     
+            x = Dense(1024, activation='relu')(xy)
+            x = BatchNormalization()(x)
+            x = Dropout(0.6)(x)
+
+            out1 = Dense(1, activation='tanh', name='out1')(x)
+            out2 = Dense(1, activation='tanh', name='out2')(x)
+
+            custom_vgg_model = Model(inputs=[model_input, mask_input], outputs= [out1, out2])
+            return custom_vgg_model
+
+
     elif model_option == 3: # with mask - 4 channel input with VGGFace
         
         model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 4), pooling='avg')
@@ -295,8 +466,7 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
         return custom_vgg_model
 
 
-
-    if model_option == 2: # with mask
+    elif model_option == 2: # with mask
         model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
         if is_trainable == False:               
             for layer in model_VGGFace.layers:
@@ -386,32 +556,64 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
         model.add(Dense(2, activation='tanh', name='out'))
         return model
 
-
     elif layer_regularization == False:
-        model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
+        resnet = True
+        if resnet == True:
+            model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
 
-        if is_trainable == False:               
-            for layer in model_VGGFace.layers:
-                layer.trainable = False
+            if is_trainable == False:               
+                for layer in model_VGGFace.layers:
+                    layer.trainable = False
+            else:
+                MPFT = True
+                if MPFT == True:
+                    if conv_block == 1:
+                        l_name = 'conv5_3_1x1_increase'
+                    elif conv_block == 2:
+                        l_name = 'conv5_2_1x1_increase'
+                    elif conv_block == 3:
+                        l_name = 'conv5_1_1x1_increase'
+                    elif conv_block == 4:
+                        l_name = 'conv4_3_1x1_increase'
+
+                    model_VGGFace.trainable = False
+                    set_trainable = False
+                    for layer in model_VGGFace.layers:
+                        if layer.name == l_name:
+                            set_trainable = True
+                        layer.trainable = set_trainable   
+                else:
+                    for layer in model_VGGFace.layers:
+                        layer.trainable = True
+
+            last_layer = model_VGGFace.get_layer('avg_pool').output    
+            print(last_layer.shape)
+
         else:
-            if conv_block == 1:
-                l_name = 'conv5_3_3x3'
-            elif conv_block == 2:
-                l_name = 'conv5_2_1x1_increase'
-            elif conv_block == 3:
-                l_name = 'conv5_2_1x1_reduce'
-            elif conv_block == 4:
-                l_name = 'conv5_1_3x3'
+            model_VGGFace = VGGFace(model='vgg16', include_top=False, input_shape=(224, 224, 3)) 
 
-            model_VGGFace.trainable = False
-            set_trainable = False
-            for layer in model_VGGFace.layers:
-                if layer.name == l_name:
-                    set_trainable = True
-                layer.trainable = set_trainable       
+            if is_trainable == False:
+                for layer in model_VGGFace.layers:
+                    layer.trainable = False
+            else:
+                if conv_block == 1:
+                    l_name = 'conv5_3'
+                elif conv_block == 2:
+                    l_name = 'conv5_2'
+                elif conv_block == 3:
+                    l_name = 'conv5_1'
+                elif conv_block == 4:
+                    l_name = 'conv4_3'
+                
+                model_VGGFace.trainable = False
+                set_trainable = False
+                for layer in model_VGGFace.layers:
+                    if layer.name == l_name:
+                        set_trainable = True
+                    layer.trainable = set_trainable   
 
-        last_layer = model_VGGFace.get_layer('avg_pool').output    
-        print(last_layer.shape)
+            last_layer = model_VGGFace.get_layer('pool5').output    
+            print(last_layer.shape)
 
         x = Flatten(name='flatten')(last_layer)
         x = Dropout(0.7)(x)
@@ -428,7 +630,7 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
 
 
     else:
-        model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
+        model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg') 
 
         regularizer = keras.regularizers.l2(0.001)
         if is_trainable == False:
@@ -443,7 +645,7 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
                 l_name = 'conv5_2_1x1_reduce'
             elif conv_block == 4:
                 l_name = 'conv5_1_3x3'
-            
+
             model_VGGFace.trainable = False
             set_trainable = False
             for layer in model_VGGFace.layers:
@@ -455,11 +657,11 @@ def custom_vgg_model(is_trainable, conv_block, layer_regularization, model_optio
                     if hasattr(layer, attr):
                         setattr(layer, attr, regularizer)
 
-            model_VGGFace.save_weights("model_checkpoints/VGGFace_Regularization.h5")
-            model_json = model_VGGFace.to_json()
-            model_VGGFace = keras.models.model_from_json(model_json)
-            model_VGGFace.load_weights("model_checkpoints/VGGFace_Regularization.h5", by_name=True)
-            
+        model_VGGFace.save_weights("model_checkpoints/VGGFace_Regularization.h5")
+        model_json = model_VGGFace.to_json()
+        model_VGGFace = keras.models.model_from_json(model_json)
+        model_VGGFace.load_weights("model_checkpoints/VGGFace_Regularization.h5", by_name=True)
+        
 
         last_layer = model_VGGFace.get_layer('avg_pool').output  
 
