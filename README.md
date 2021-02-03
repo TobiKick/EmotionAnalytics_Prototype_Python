@@ -1,6 +1,8 @@
 # Visual-Emotion-Recognition
 [Deep Learning] Prototype implementation for the Master's thesis 'Visual Emotion Recogntion in The Wild' using Keras @ University of Hamburg
 
+https://i.ibb.co/HnXxXSx/webcam-foto-1.png
+
 ## Goal:
 Assessing the viability of Emotion Recognition for business use-cases in-the-wild based on facial expressions
 
