@@ -5,7 +5,7 @@
 Assessing the viability of Emotion Recognition for business use-cases in-the-wild based on facial expressions
 
 ## Tasks:
-• Implementation of a state-of-the-art Deep Learning solution based on current literature<br/>
+• Prototype implementation of a state-of-the-art Deep Learning solution based on current literature<br/>
 • Comparison of various Deep Learning methods through ablation study<br/>
 • User experiment setup in order to verify the viability of Emotion Recognition to identify interest in a business context
 
