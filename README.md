@@ -2,8 +2,8 @@
 [Deep Learning] Prototype implementation for the Master's thesis 'Visual Emotion Recogntion in The Wild' using Keras @ University of Hamburg
 
 <p>
-  <img src="https://i.ibb.co/31wT3cH/Data-Flow-Diagram-new-1.png" alt="DL Methodology" width="20%" >
-  <img src="https://i.ibb.co/HnXxXSx/webcam-foto-1.png" alt="Prototype webcam" width="80%" align="top">
+  <img src="https://i.ibb.co/31wT3cH/Data-Flow-Diagram-new-1.png" alt="DL Methodology" width="33%" >
+  <img src="https://i.ibb.co/HnXxXSx/webcam-foto-1.png" alt="Prototype webcam" width="66%" align="top">
 </p>
 
 ## Goal:
