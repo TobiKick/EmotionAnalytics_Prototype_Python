@@ -30,3 +30,7 @@ MasterThesis_Prototype_Python.iml
 /training/best_model.h5
 /training/shape_predictor_68_face_landmarks.dat
 /training/__pycache__
+
+/training_RNN/__pycache__
+/training_RNN/model_checkpoints
+/training_RNN/_data_prep/*.npy
