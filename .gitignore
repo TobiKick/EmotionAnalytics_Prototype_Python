@@ -32,5 +32,7 @@ MasterThesis_Prototype_Python.iml
 /training/__pycache__
 
 /training_RNN/__pycache__
+/training_RNN/.ipynb_checkpoints
 /training_RNN/model_checkpoints
 /training_RNN/_data_prep/*.npy
+/training_RNN/*.csv

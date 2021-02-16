@@ -10,11 +10,16 @@ import csv
 from mtcnn import MTCNN
 import cv2
 from PIL import Image
+import pickle
+import math
+import matplotlib.pyplot as plt
+import matplotlib
+import scikitplot as skplt
 
 ## modules for NN model
 import tensorflow as tf
 from keras_vggface.vggface import VGGFace
-from keras.layers import Add, Activation, Dense, Flatten, Input, Dropout, Conv1D, Conv2D, LSTM, Concatenate, Reshape, MaxPool1D, MaxPool2D, BatchNormalization, TimeDistributed, Reshape, GlobalAveragePooling2D
+from keras.layers import Add, Activation, Dense, Flatten, Input, Dropout, Conv1D, Conv2D, LSTM, GRU, Concatenate, Reshape, MaxPool1D, MaxPool2D, BatchNormalization, TimeDistributed, Reshape, GlobalAveragePooling2D
 from keras import Model, Sequential
 from keras import activations
 import keras as keras
@@ -22,60 +27,39 @@ import keras.backend as K
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, LearningRateScheduler
 from keras.preprocessing.image import ImageDataGenerator
-from keras.optimizers import Adam, SGD 
+from keras.optimizers import Adam, SGD, RMSprop
 
 ########################################################################################
 ########################################################################################
 
-def custom_vgg_model(is_trainable, conv_block, SEQUENCE_LENGTH):
-    
-    model_VGGFace = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
-
-    if is_trainable == False:              
-        for layer in model_VGGFace.layers:
-            layer.trainable = False
-    else:
-        if conv_block == 1:
-            l_name = 'conv5_3_3x3'
-        elif conv_block == 2:
-            l_name = 'conv5_2_1x1_increase'
-        elif conv_block == 3:
-            l_name = 'conv5_2_1x1_reduce'
-        elif conv_block == 4:
-            l_name = 'conv5_1_3x3'
-
-        model_VGGFace.trainable = False
-        set_trainable = False
-        for layer in model_VGGFace.layers:
-            if layer.name == l_name:
-                set_trainable = True
-            layer.trainable = set_trainable 
-
-    intermediate_model= Model(inputs=model_VGGFace.input, outputs=model_VGGFace.get_layer('avg_pool').output)
-    intermediate_model.summary()
+def custom_vgg_model(SEQUENCE_LENGTH):    
+    vggface = VGGFace(model='resnet50', include_top=False, input_shape=(224, 224, 3), pooling='avg')
+    model_VGGFace= Model(inputs=vggface.input, outputs=vggface.get_layer('avg_pool').output)
+    model_VGGFace.summary()
 
     input_tensor = Input(shape=(SEQUENCE_LENGTH, 224, 224, 3))
-    x = TimeDistributed( intermediate_model )(input_tensor)
+    x = TimeDistributed( model_VGGFace )(input_tensor)
+    x = TimeDistributed(Flatten())(x)  
 
-    x = TimeDistributed(Flatten())(x)
-    x = TimeDistributed(Dense(4096, activation='relu', name='dense'))(x)
-    x = Dropout(0.5, name='dropout_1')(x)
-    x = LSTM(128, activation='relu', input_shape=(SEQUENCE_LENGTH, 224, 224, 3), return_sequences=True, name='lstm_1')(x)
-    x = Dropout(0.5, name='dropout_2')(x)
-    x = LSTM(128, activation='relu', input_shape=(SEQUENCE_LENGTH, 224, 224, 3), return_sequences=True, name='lstm_2')(x)
-    # model.add(BatchNormalization(name='batchNorm'))
+    x = TimeDistributed(Dense(1500, activation='relu', name='dense'))(x)
+    # x = Dropout(0.2, name='dropout_1')(x)
+    # x = GRU(64, activation='relu', return_sequences=True, name='lstm_1')(x)
+    # x = Dropout(0.2, name='dropout_2')(x)
+    # x = GRU(64, activation='relu', return_sequences=True, name='lstm_2')(x)
 
-    out1 = TimeDistributed(Dense(1, activation='tanh'), name='out1')(x)
-    out2 = TimeDistributed(Dense(1, activation='tanh'), name='out2')(x)
+    # x = TimeDistributed(Dense(128, activation='relu'), name='dense_2')(x)
+    x = TimeDistributed(Dense(512, activation='relu', name='dense'))(x)
+    x = TimeDistributed(Dense(128, activation='relu', name='dense'))(x)
+    x = TimeDistributed(Dense(32, activation='relu', name='dense'))(x)
+    out1 = TimeDistributed(Dense(2, activation='tanh'), name='out1')(x)
 
-    model = Model(inputs=[input_tensor], outputs= [out1, out2])
+    model = Model(inputs=[input_tensor], outputs= [out1])
     return model
 
 
 
 def rmse(y_true, y_pred):
     return K.sqrt(K.mean(K.square(y_pred - y_true))) 
-
 
 
 def corr(y_true, y_pred):
@@ -92,11 +76,32 @@ def corr(y_true, y_pred):
     return K.mean(r)
 
 
+def shape_targets(targets_v, targets_a):
+    a = []
+    for i in range(0, len(targets_v)):
+        b = []
+        for j in range(0, 45):
+            b.append([targets_v[i][j], targets_a[i][j]])
+        a.append(b)
+
+    a = np.array(a)
+    print(a.shape)
+    return a
+
+
+def scheduler(epoch, lr):
+    if epoch == 0:
+        return float(lr)
+    else:
+        print("New learning rate: " + str(lr *0.95))
+        return float(lr * 0.95) 
+
+
 ########################################################################################
 ########################################################################################
 
 SEQUENCE_LENGTH = 45
-BATCH_SIZE = 4
+BATCH_SIZE = 4   # triggers error with higher batch size because of metrics
 
 f = np.load('_data_prep/faces_sequenced_45.npy', allow_pickle=True)
 v = np.load('_data_prep/valence_sequenced_45.npy', allow_pickle=True)
@@ -132,6 +137,8 @@ print(targets_validation_a.shape)
 
 cb_bestModel = ModelCheckpoint('model_checkpoints/model_best.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
 cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=5) # waiting for X consecutive epochs that don't reduce the val_loss
+cb_learningRate =  LearningRateScheduler(scheduler)
+
 # datagen = ImageDataGenerator(
 #     rotation_range=30,
 #     width_shift_range=0.25,
@@ -146,27 +153,87 @@ cb_earlyStop = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience
 # train_steps = len(gen1)
 # train = multi_out(gen1)
 
-model = custom_vgg_model(False, 0, SEQUENCE_LENGTH)
+
+
+
+
+
+model = custom_vgg_model(SEQUENCE_LENGTH)
+
+# freezing layers in model_VGGFace
+for layer in model.layers[1].layer.layers:
+    layer.trainable = False
+
 model.summary()
-opt = Adam(lr=0.001)  # 0.0001
-model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
-scores = model.fit(inputs_train, [targets_train_v, targets_train_a], validation_data=(inputs_validation, [targets_validation_v, targets_validation_a]) ,verbose=1, epochs=3)
-model.save_weights("model_checkpoints/model_best.h5")
+
+#opt = RMSprop(learning_rate=0.0001)
+opt = Adam(lr=0.0001)
+model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr]})  # , 'out2' : ["accuracy", rmse, corr]})
+
+targets_t = shape_targets(targets_train_v, targets_train_a)
+targets_val = shape_targets(targets_validation_v, targets_validation_a)
+print(targets_t.shape)
+
+scores = model.fit(inputs_train, targets_t, validation_data=(inputs_validation, targets_val) ,verbose=1, epochs=3, batch_size=BATCH_SIZE, callbacks = [cb_bestModel ,cb_earlyStop])
+# scores = model.fit(inputs_train, targets_t, validation_data=(inputs_validation, targets_val) ,verbose=1, epochs=3, batch_size=BATCH_SIZE, callbacks = [cb_bestModel ,cb_earlyStop])
+# model.save_weights("model_checkpoints/model_best.h5")
 
 with open('trainHistoryDict_0', 'wb') as file_scores:
     pickle.dump(scores.history, file_scores)
 
+
 for i in [1, 2, 3, 4]:
-    model = custom_vgg_model(True, i, SEQUENCE_LENGTH)
-    model.load_weights("model_checkpoints/model_best.h5")
+
+    model = custom_vgg_model(SEQUENCE_LENGTH)
+    try:
+        set_trainable = False
+        for layer in model.layers[1].layer.layers:
+            if i != 1:
+                if layer.name == l_name:
+                    set_trainable = True
+            layer.trainable = set_trainable
+        model.load_weights("model_checkpoints/model_best.h5")
+    except:
+        set_trainable = False
+        for layer in model.layers[1].layer.layers:
+            if (i-1) != 1:
+                if layer.name == l_name_old:
+                    set_trainable = True
+            layer.trainable = set_trainable
+        model.load_weights("model_checkpoints/model_best.h5")
+
+    if i > 1:
+        l_name_old = l_name
+
+    if i == 1:
+        l_name = 'conv5_3_3x3'
+    elif i == 2:
+        l_name = 'conv5_2_1x1_increase'
+    elif i == 3:
+        l_name = 'conv5_2_1x1_reduce'
+    elif i == 4:
+        l_name = 'conv5_1_3x3'
+
+    set_trainable = False
+    for layer in model.layers[1].layer.layers:
+        if layer.name == l_name:
+            set_trainable = True
+        layer.trainable = set_trainable 
+
     model.summary()
-    opt = Adam(lr=0.0001)
-    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr], 'out2' : ["accuracy", rmse, corr]})
+
+    opt = Adam(lr=0.00001)
+    model.compile(loss = rmse, optimizer = opt, metrics = {'out1' : ["accuracy", rmse, corr]})     #, 'out2' : ["accuracy", rmse, corr]})
         
-    scores = model.fit(inputs_train, [targets_train_v, targets_train_a], validation_data=(inputs_validation, [targets_validation_v, targets_validation_a]) ,verbose=1, epochs=1000, callbacks = [cb_bestModel ,cb_earlyStop])
+    scores = model.fit(inputs_train, targets_t, validation_data=(inputs_validation, targets_val) ,verbose=1, epochs=1000, batch_size=BATCH_SIZE, callbacks = [cb_bestModel ,cb_earlyStop, cb_learningRate])
     
     with open('trainHistoryDict_' + str(i), 'wb') as file_scores:
         pickle.dump(scores.history, file_scores)
+
+    print(targets_val[0:5])
+    predict_out = model.predict(inputs_validation[0:5])
+    print("Predict output")
+    print(predict_out)
 
 
 
@@ -177,3 +244,12 @@ with open('Validation_results.csv', "a") as fp:
     wr = csv.writer(fp, dialect='excel')
     wr.writerow(result)
     wr.writerow(model.metrics_names)
+
+
+validation_pred = model.predict(inputs_validation, verbose=1)
+np.save('val_labels_v', targets_validation_v)
+np.save('val_labels_a', targets_validation_a)
+np.save('val_predicted', validation_pred)
+
+skplt.metrics.plot_confusion_matrix(targets_validation_v, validation_pred[:,0], normalize=True)
+plt.show()
